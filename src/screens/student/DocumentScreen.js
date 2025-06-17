@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -10,7 +10,8 @@ import {
   RefreshControl,
   Linking,
   ActionSheetIOS,
-  Platform
+  Platform,
+  ActivityIndicator
 } from 'react-native';
 import { SearchBar, Card, Button, Badge, Header } from 'react-native-elements';
 import Icon from 'react-native-vector-icons/MaterialIcons';
@@ -28,6 +29,8 @@ import {
   isYouTubeUrl 
 } from '../../utils/helpers';
 
+const DOCUMENT_ITEM_HEIGHT = 180; 
+
 const DocumentScreen = ({ route, navigation }) => {
   const { course, courseId, courseName } = route.params;
   const { userProfile } = useAuthViewModel();
@@ -41,17 +44,47 @@ const DocumentScreen = ({ route, navigation }) => {
     getDocumentsByType,
     searchDocuments,
     canManageDocument,
-    clearError
+    clearError,
+    loadMoreDocuments,
+    hasMoreDocuments,
+    resetPagination
   } = useDocumentViewModel(courseId);
 
   const { isVisible, videoData, showVideo, hideVideo } = useYouTubeModal();
-
+  
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedType, setSelectedType] = useState('all'); 
+  const [selectedType, setSelectedType] = useState('all');
+  const [loadingMore, setLoadingMore] = useState(false);
 
   const isTeacher = userProfile?.isTeacher?.();
   const canManage = canManageCourse(course);
+
+  const filteredDocuments = useMemo(() => {
+    let filteredDocs = documents;
+
+    if (selectedType !== 'all') {
+      filteredDocs = getDocumentsByType(selectedType);
+    }
+
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      filteredDocs = filteredDocs.filter(doc => 
+        doc.title?.toLowerCase().includes(query) ||
+        doc.description?.toLowerCase().includes(query) ||
+        doc.uploaderName?.toLowerCase().includes(query)
+      );
+    }
+    
+    return filteredDocs;
+  }, [documents, selectedType, searchQuery, getDocumentsByType]);
+
+  const documentCounts = useMemo(() => ({
+    all: documents.length,
+    pdf: getDocumentsByType('pdf').length,
+    video: getDocumentsByType('video').length,
+    link: getDocumentsByType('link').length,
+  }), [documents, getDocumentsByType]);
 
   useEffect(() => {
     navigation.setOptions({
@@ -71,20 +104,43 @@ const DocumentScreen = ({ route, navigation }) => {
     });
   }, [navigation, courseName, canManage]);
 
-  const onRefresh = async () => {
+  const onRefresh = useCallback(async () => {
     setRefreshing(true);
     clearError();
-    setTimeout(() => setRefreshing(false), 1000);
-  };
+    resetPagination();
+    
+    try {
+      await loadMoreDocuments(true); 
+    } catch (error) {
+      console.error('Refresh error:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [clearError, resetPagination, loadMoreDocuments]);
 
-  const handleAddDocument = () => {
+  const handleLoadMore = useCallback(async () => {
+    if (loadingMore || loading || !hasMoreDocuments || searchQuery.trim() || selectedType !== 'all') {
+      return; 
+    }
+
+    setLoadingMore(true);
+    try {
+      await loadMoreDocuments();
+    } catch (error) {
+      console.error('Load more error:', error);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [loadingMore, loading, hasMoreDocuments, searchQuery, selectedType, loadMoreDocuments]);
+
+  const handleAddDocument = useCallback(() => {
     navigation.navigate('AddDocument', {
       course,
       courseId: courseId
     });
-  };
+  }, [navigation, course, courseId]);
 
-  const handleDocumentPress = async (document) => {
+  const handleDocumentPress = useCallback(async (document) => {
     try {
       if (!document.url) {
         Alert.alert('Lỗi', 'Tài liệu không có URL hợp lệ');
@@ -112,9 +168,9 @@ const DocumentScreen = ({ route, navigation }) => {
       console.error('Error opening document:', error);
       Alert.alert('Lỗi', 'Không thể mở tài liệu');
     }
-  };
+  }, [showVideo]);
 
-  const handleDocumentLongPress = (document) => {
+  const handleDocumentLongPress = useCallback((document) => {
     if (!canManageDocument(document)) {
       return;
     }
@@ -154,17 +210,17 @@ const DocumentScreen = ({ route, navigation }) => {
         ]
       );
     }
-  };
+  }, [canManageDocument]);
 
-  const handleEditDocument = (document) => {
+  const handleEditDocument = useCallback((document) => {
     navigation.navigate('EditDocument', {
       document,
       course,
       courseId
     });
-  };
+  }, [navigation, course, courseId]);
 
-  const handleDeleteDocument = (document) => {
+  const handleDeleteDocument = useCallback((document) => {
     Alert.alert(
       'Xóa tài liệu',
       `Bạn có chắc muốn xóa tài liệu "${document.title}"?\n\nHành động này không thể hoàn tác.`,
@@ -185,61 +241,63 @@ const DocumentScreen = ({ route, navigation }) => {
         }
       ]
     );
-  };
+  }, [deleteDocument]);
 
-  const getFilteredDocuments = () => {
-    let filteredDocs = documents;
-    if (selectedType !== 'all') {
-      filteredDocs = getDocumentsByType(selectedType);
-    }
-    if (searchQuery.trim()) {
-      filteredDocs = searchDocuments(searchQuery);
-      if (selectedType !== 'all') {
-        filteredDocs = filteredDocs.filter(doc => doc.type === selectedType);
-      }
-    }
+  const handleTypeFilter = useCallback((type) => {
+    setSelectedType(type);
+    setSearchQuery(''); 
+  }, []);
 
-    return filteredDocs;
-  };
-
-  const getDocumentIconWithYouTube = (type, url) => {
+  const getDocumentIconWithYouTube = useCallback((type, url) => {
     if (isYouTubeUrl(url)) {
       return 'smart-display';
     }
     return getDocumentIcon(type);
-  };
+  }, []);
 
-  const getDocumentColorWithYouTube = (type, url) => {
+  const getDocumentColorWithYouTube = useCallback((type, url) => {
     if (isYouTubeUrl(url)) {
       return '#ff0000';
     }
     return getDocumentColor(type);
-  };
+  }, []);
 
-  const renderFilterTab = (type, label, count) => {
-    const isActive = selectedType === type;
-    return (
-      <TouchableOpacity
-        key={type}
-        style={[styles.filterTab, isActive && styles.activeFilterTab]}
-        onPress={() => setSelectedType(type)}
-      >
-        <Text style={[styles.filterTabText, isActive && styles.activeFilterTabText]}>
-          {label} ({count})
-        </Text>
-      </TouchableOpacity>
-    );
-  };
+  const FilterTab = React.memo(({ type, label, count, isActive, onPress }) => (
+    <TouchableOpacity
+      style={[styles.filterTab, isActive && styles.activeFilterTab]}
+      onPress={() => onPress(type)}
+    >
+      <Text style={[styles.filterTabText, isActive && styles.activeFilterTabText]}>
+        {label} ({count})
+      </Text>
+    </TouchableOpacity>
+  ));
 
-  const renderDocumentItem = ({ item: document }) => {
-    const canManageThis = canManageDocument(document);
+  const renderFilterTab = useCallback(({ item }) => (
+    <FilterTab
+      type={item.type}
+      label={item.label}
+      count={item.count}
+      isActive={selectedType === item.type}
+      onPress={handleTypeFilter}
+    />
+  ), [selectedType, handleTypeFilter]);
+
+  const DocumentCard = React.memo(({ 
+    document, 
+    onPress, 
+    onLongPress, 
+    canManageThis,
+    getDocumentIconWithYouTube,
+    getDocumentColorWithYouTube 
+  }) => {
     const isYouTubeVideo = isYouTubeUrl(document.url);
     
     return (
       <Card containerStyle={styles.documentCard}>
         <TouchableOpacity
-          onPress={() => handleDocumentPress(document)}
-          onLongPress={() => handleDocumentLongPress(document)}
+          onPress={() => onPress(document)}
+          onLongPress={() => onLongPress(document)}
           activeOpacity={0.7}
         >
           <View style={styles.documentHeader}>
@@ -275,13 +333,11 @@ const DocumentScreen = ({ route, navigation }) => {
               textStyle={styles.badgeText}
             />
           </View>
-
           {document.description ? (
             <Text style={styles.documentDescription} numberOfLines={3}>
               {document.description}
             </Text>
           ) : null}
-
           <View style={styles.documentFooter}>
             <View style={styles.documentInfo}>
               <Text style={styles.documentDate}>
@@ -298,11 +354,10 @@ const DocumentScreen = ({ route, navigation }) => {
                 </Text>
               )}
             </View>
-
             <View style={styles.documentActions}>
               <TouchableOpacity
                 style={styles.actionButton}
-                onPress={() => handleDocumentPress(document)}
+                onPress={() => onPress(document)}
               >
                 <Icon 
                   name={isYouTubeVideo ? "play-arrow" : "open-in-new"} 
@@ -315,9 +370,30 @@ const DocumentScreen = ({ route, navigation }) => {
         </TouchableOpacity>
       </Card>
     );
-  };
+  });
 
-  const renderEmptyComponent = () => (
+  const renderDocumentItem = useCallback(({ item: document }) => {
+    const canManageThis = canManageDocument(document);
+    
+    return (
+      <DocumentCard
+        document={document}
+        onPress={handleDocumentPress}
+        onLongPress={handleDocumentLongPress}
+        canManageThis={canManageThis}
+        getDocumentIconWithYouTube={getDocumentIconWithYouTube}
+        getDocumentColorWithYouTube={getDocumentColorWithYouTube}
+      />
+    );
+  }, [
+    canManageDocument, 
+    handleDocumentPress, 
+    handleDocumentLongPress,
+    getDocumentIconWithYouTube,
+    getDocumentColorWithYouTube
+  ]);
+
+  const renderEmptyComponent = useCallback(() => (
     <View style={styles.emptyContainer}>
       <Icon name="folder-open" size={64} color="#adb5bd" />
       <Text style={styles.emptyTitle}>
@@ -330,17 +406,29 @@ const DocumentScreen = ({ route, navigation }) => {
         }
       </Text>
     </View>
-  );
+  ), [searchQuery]);
 
-  if (loading && !refreshing) {
+  const renderFooter = useCallback(() => {
+    if (!loadingMore) return null;
+    
+    return (
+      <View style={styles.footerLoader}>
+        <ActivityIndicator size="small" color="#2196F3" />
+        <Text style={styles.loadingText}>Đang tải thêm...</Text>
+      </View>
+    );
+  }, [loadingMore]);
+  const getItemLayout = useCallback((data, index) => ({
+    length: DOCUMENT_ITEM_HEIGHT,
+    offset: DOCUMENT_ITEM_HEIGHT * index,
+    index,
+  }), []);
+
+  const keyExtractor = useCallback((item) => item.id || Math.random().toString(), []);
+
+  if (loading && !refreshing && documents.length === 0) {
     return <LoadingSpinner />;
   }
-
-  const filteredDocuments = getFilteredDocuments();
-  const allCount = documents.length;
-  const pdfCount = getDocumentsByType('pdf').length;
-  const videoCount = getDocumentsByType('video').length;
-  const linkCount = getDocumentsByType('link').length;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -352,16 +440,8 @@ const DocumentScreen = ({ route, navigation }) => {
           containerStyle={styles.searchContainer}
           inputContainerStyle={styles.searchInputContainer}
           inputStyle={styles.searchInput}
-          searchIcon={{
-            type: 'material',
-            name: 'search',
-            color: '#2196F3'
-          }}
-          clearIcon={{
-            type: 'material', 
-            name: 'clear',
-            color: '#2196F3'
-          }}
+          searchIcon={{ name: 'search', color: '#2196F3' }}
+          clearIcon={{ name: 'clear', color: '#2196F3' }}
         />
 
         <View style={styles.filterContainer}>
@@ -369,14 +449,18 @@ const DocumentScreen = ({ route, navigation }) => {
             horizontal
             showsHorizontalScrollIndicator={false}
             data={[
-              { type: 'all', label: 'Tất cả', count: allCount },
-              { type: 'pdf', label: 'PDF', count: pdfCount },
-              { type: 'video', label: 'Video', count: videoCount },
-              { type: 'link', label: 'Link', count: linkCount },
+              { type: 'all', label: 'Tất cả', count: documentCounts.all },
+              { type: 'pdf', label: 'PDF', count: documentCounts.pdf },
+              { type: 'video', label: 'Video', count: documentCounts.video },
+              { type: 'link', label: 'Link', count: documentCounts.link },
             ]}
-            renderItem={({ item }) => renderFilterTab(item.type, item.label, item.count)}
+            renderItem={renderFilterTab}
             keyExtractor={(item) => item.type}
             contentContainerStyle={styles.filterList}
+            initialNumToRender={4}
+            maxToRenderPerBatch={4}
+            windowSize={2}
+            removeClippedSubviews={false} 
           />
         </View>
 
@@ -394,8 +478,16 @@ const DocumentScreen = ({ route, navigation }) => {
           <FlatList
             data={filteredDocuments}
             renderItem={renderDocumentItem}
-            keyExtractor={(item) => item.id || Math.random().toString()}
+            keyExtractor={keyExtractor}
             ListEmptyComponent={renderEmptyComponent}
+            ListFooterComponent={renderFooter}
+            onEndReached={handleLoadMore}
+            onEndReachedThreshold={0.3}
+            initialNumToRender={10}
+            maxToRenderPerBatch={5}
+            windowSize={10}
+            removeClippedSubviews={true}
+            getItemLayout={getItemLayout}
             refreshControl={
               <RefreshControl
                 refreshing={refreshing}
@@ -404,11 +496,13 @@ const DocumentScreen = ({ route, navigation }) => {
                 tintColor="#2196F3"
               />
             }
+            
             contentContainerStyle={styles.listContainer}
             showsVerticalScrollIndicator={false}
           />
         )}
       </View>
+
       <YouTubeModal
         visible={isVisible}
         onClose={hideVideo}
@@ -645,6 +739,17 @@ const styles = StyleSheet.create({
   retryButtonText: {
     fontSize: 14,
     fontWeight: '600',
+  },
+  footerLoader: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 20,
+  },
+  loadingText: {
+    marginLeft: 10,
+    color: '#6c757d',
+    fontSize: 14,
   },
 });
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -12,7 +12,8 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
-  Linking
+  Linking,
+  ActivityIndicator
 } from 'react-native';
 import { SearchBar, Card, Button, Input, ButtonGroup } from 'react-native-elements';
 import Icon from 'react-native-vector-icons/MaterialIcons';
@@ -34,6 +35,8 @@ import {
   getDocumentColor 
 } from '../../utils/helpers';
 
+const DOCUMENT_ITEM_HEIGHT = 200; 
+
 const ManageDocumentScreen = ({ route, navigation }) => {
   const { course, courseId, courseName } = route.params;
   const { userProfile } = useAuthViewModel();
@@ -50,7 +53,11 @@ const ManageDocumentScreen = ({ route, navigation }) => {
     getDocumentStats,
     searchDocuments,
     canManageDocument,
-    clearError
+    clearError,
+    loadMoreDocuments,
+    hasMoreDocuments,
+    resetPagination,
+    allDocuments 
   } = useDocumentViewModel(courseId);
 
   const [refreshing, setRefreshing] = useState(false);
@@ -58,13 +65,33 @@ const ManageDocumentScreen = ({ route, navigation }) => {
   const [editingDocument, setEditingDocument] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedType, setSelectedType] = useState('all');
-  const [documentType, setDocumentType] = useState(0); 
+  const [documentType, setDocumentType] = useState(0);
   const [selectedFile, setSelectedFile] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   const documentTypes = ['PDF', 'Video', 'Link'];
   const typeMapping = ['pdf', 'video', 'link'];
   const canManage = canManageCourse(course);
+  const filteredDocuments = useMemo(() => {
+    let filteredDocs = documents;
+    if (selectedType !== 'all') {
+      filteredDocs = getDocumentsByType(selectedType);
+    }
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      filteredDocs = filteredDocs.filter(doc => 
+        doc.title?.toLowerCase().includes(query) ||
+        doc.description?.toLowerCase().includes(query) ||
+        doc.uploaderName?.toLowerCase().includes(query)
+      );
+    }
+    
+    return filteredDocs;
+  }, [documents, selectedType, searchQuery, getDocumentsByType]);
+  const stats = useMemo(() => getDocumentStats(), [getDocumentStats]);
+
+  const watchedType = typeMapping[documentType];
 
   useEffect(() => {
     navigation.setOptions({
@@ -100,16 +127,35 @@ const ManageDocumentScreen = ({ route, navigation }) => {
       url: ''
     }
   });
-
-  const watchedType = typeMapping[documentType];
-
-  const onRefresh = async () => {
+  const onRefresh = useCallback(async () => {
     setRefreshing(true);
     clearError();
-    setTimeout(() => setRefreshing(false), 1000);
-  };
+    resetPagination();
+    
+    try {
+      await loadMoreDocuments(true);
+    } catch (error) {
+      console.error('Refresh error:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [clearError, resetPagination, loadMoreDocuments]);
+  const handleLoadMore = useCallback(async () => {
+    if (loadingMore || loading || !hasMoreDocuments || searchQuery.trim() || selectedType !== 'all') {
+      return; 
+    }
 
-  const openCreateModal = () => {
+    setLoadingMore(true);
+    try {
+      await loadMoreDocuments();
+    } catch (error) {
+      console.error('Load more error:', error);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [loadingMore, loading, hasMoreDocuments, searchQuery, selectedType, loadMoreDocuments]);
+
+  const openCreateModal = useCallback(() => {
     setEditingDocument(null);
     setDocumentType(0);
     setSelectedFile(null);
@@ -119,9 +165,9 @@ const ManageDocumentScreen = ({ route, navigation }) => {
       url: ''
     });
     setModalVisible(true);
-  };
+  }, [reset]);
 
-  const openEditModal = (document) => {
+  const openEditModal = useCallback((document) => {
     setEditingDocument(document);
     const typeIndex = typeMapping.indexOf(document.type);
     setDocumentType(typeIndex >= 0 ? typeIndex : 0);
@@ -132,9 +178,9 @@ const ManageDocumentScreen = ({ route, navigation }) => {
       url: document.url || ''
     });
     setModalVisible(true);
-  };
+  }, [reset]);
 
-  const closeModal = () => {
+  const closeModal = useCallback(() => {
     setModalVisible(false);
     setEditingDocument(null);
     setDocumentType(0);
@@ -145,9 +191,9 @@ const ManageDocumentScreen = ({ route, navigation }) => {
       description: '',
       url: ''
     });
-  };
+  }, [reset]);
 
-  const handleViewDocument = async (document) => {
+  const handleViewDocument = useCallback(async (document) => {
     try {
       if (!document.url) {
         Alert.alert('Lỗi', 'Tài liệu không có URL hợp lệ');
@@ -171,9 +217,9 @@ const ManageDocumentScreen = ({ route, navigation }) => {
       console.error('Error opening document:', error);
       Alert.alert('Lỗi', 'Không thể mở tài liệu');
     }
-  };
+  }, []);
 
-  const pickDocument = async () => {
+  const pickDocument = useCallback(async () => {
     try {
       const result = await DocumentPicker.getDocumentAsync({
         type: [
@@ -188,8 +234,6 @@ const ManageDocumentScreen = ({ route, navigation }) => {
 
       if (!result.canceled && result.assets && result.assets[0]) {
         const file = result.assets[0];
-        
-        // Create file object compatible with our upload function
         const fileObj = {
           uri: file.uri,
           type: file.mimeType || 'application/pdf',
@@ -198,12 +242,8 @@ const ManageDocumentScreen = ({ route, navigation }) => {
         };
 
         setSelectedFile(fileObj);
-        
-        // Auto-fill title from filename
         const fileName = fileObj.name.replace(/\.[^/.]+$/, "");
         setValue('title', fileName);
-        
-        // Clear URL when file is selected since we'll get URL from Firebase
         setValue('url', '');
         
         Alert.alert('Thành công', `Đã chọn file: ${fileObj.name}`);
@@ -214,9 +254,9 @@ const ManageDocumentScreen = ({ route, navigation }) => {
       console.error('Document picker error:', error);
       Alert.alert('Lỗi', 'Không thể chọn file. Vui lòng thử lại.');
     }
-  };
+  }, [setValue]);
 
-  const onSubmit = async (data) => {
+  const onSubmit = useCallback(async (data) => {
     try {
       setSubmitting(true);
       const docType = typeMapping[documentType];
@@ -225,22 +265,17 @@ const ManageDocumentScreen = ({ route, navigation }) => {
         Alert.alert('Lỗi', 'Vui lòng nhập tên tài liệu');
         return;
       }
-
-      // For PDF type, either file or URL is required (but not both)
       if (docType === 'pdf') {
         if (!selectedFile && !data.url?.trim()) {
           Alert.alert('Lỗi', 'Vui lòng chọn file PDF hoặc nhập URL');
           return;
         }
       } else {
-        // For video/link types, URL is required
         if (!data.url?.trim()) {
           Alert.alert('Lỗi', 'Vui lòng nhập URL');
           return;
         }
       }
-
-      // Validate URL format if provided (and no file selected for PDF)
       if (data.url?.trim() && !(docType === 'pdf' && selectedFile)) {
         const urlPattern = /^https?:\/\/.+/;
         if (!urlPattern.test(data.url.trim())) {
@@ -253,7 +288,7 @@ const ManageDocumentScreen = ({ route, navigation }) => {
         title: data.title.trim(),
         description: data.description?.trim() || '',
         type: docType,
-        url: selectedFile ? '' : (data.url?.trim() || '') // URL will be filled by upload process if file is selected
+        url: selectedFile ? '' : (data.url?.trim() || '') 
       };
 
       if (editingDocument) {
@@ -271,9 +306,9 @@ const ManageDocumentScreen = ({ route, navigation }) => {
     } finally {
       setSubmitting(false);
     }
-  };
+  }, [documentType, selectedFile, editingDocument, updateDocument, createDocument, closeModal]);
 
-  const handleDeleteDocument = (document) => {
+  const handleDeleteDocument = useCallback((document) => {
     if (!canManageDocument(document)) {
       Alert.alert('Lỗi', 'Bạn không có quyền xóa tài liệu này');
       return;
@@ -299,119 +334,128 @@ const ManageDocumentScreen = ({ route, navigation }) => {
         }
       ]
     );
-  };
+  }, [canManageDocument, deleteDocument]);
 
-  const getFilteredDocuments = () => {
-    let filteredDocs = documents;
-    if (selectedType !== 'all') {
-      filteredDocs = getDocumentsByType(selectedType);
-    }
+  const handleTypeFilter = useCallback((type) => {
+    setSelectedType(type);
+    setSearchQuery('');
+  }, []);
+  const FilterTab = React.memo(({ type, label, count, isActive, onPress }) => (
+    <TouchableOpacity
+      style={[styles.filterTab, isActive && styles.activeFilterTab]}
+      onPress={() => onPress(type)}
+    >
+      <Text style={[styles.filterTabText, isActive && styles.activeFilterTabText]}>
+        {label} ({count})
+      </Text>
+    </TouchableOpacity>
+  ));
 
-    if (searchQuery.trim()) {
-      filteredDocs = searchDocuments(searchQuery);
-      if (selectedType !== 'all') {
-        filteredDocs = filteredDocs.filter(doc => doc.type === selectedType);
-      }
-    }
+  const renderFilterTab = useCallback(({ item }) => (
+    <FilterTab
+      type={item.type}
+      label={item.label}
+      count={item.count}
+      isActive={selectedType === item.type}
+      onPress={handleTypeFilter}
+    />
+  ), [selectedType, handleTypeFilter]);
+  const DocumentCard = React.memo(({ 
+    document, 
+    onView, 
+    onEdit, 
+    onDelete, 
+    canManageThis 
+  }) => (
+    <Card containerStyle={styles.documentCard}>
+      <View style={styles.documentHeader}>
+        <TouchableOpacity 
+          style={styles.documentTitleContainer}
+          onPress={() => onView(document)}
+          activeOpacity={0.7}
+        >
+          <Icon
+            name={getDocumentIcon(document.type)}
+            size={24}
+            color={getDocumentColor(document.type)}
+            style={styles.documentIcon}
+          />
+          <View style={styles.titleContainer}>
+            <Text style={styles.documentTitle} numberOfLines={2}>
+              {document.title || 'Không có tiêu đề'}
+            </Text>
+            {canManageThis && (
+              <Text style={styles.ownerIndicator}>
+                Bạn đã tạo
+              </Text>
+            )}
+          </View>
+        </TouchableOpacity>
+        
+        {canManageThis && (
+          <View style={styles.documentActions}>
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={() => onEdit(document)}
+            >
+              <Icon name="edit" size={20} color="#ffc107" />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={() => onDelete(document)}
+            >
+              <Icon name="delete" size={20} color="#dc3545" />
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
 
-    return filteredDocs;
-  };
-
-  const renderFilterTab = (type, label, count) => {
-    const isActive = selectedType === type;
-    return (
-      <TouchableOpacity
-        key={type}
-        style={[styles.filterTab, isActive && styles.activeFilterTab]}
-        onPress={() => setSelectedType(type)}
-      >
-        <Text style={[styles.filterTabText, isActive && styles.activeFilterTabText]}>
-          {label} ({count})
+      {document.description ? (
+        <Text style={styles.documentDescription} numberOfLines={3}>
+          {document.description}
         </Text>
-      </TouchableOpacity>
-    );
-  };
+      ) : null}
 
-  const renderDocumentItem = ({ item: document }) => {
+      <View style={styles.documentFooter}>
+        <View style={styles.documentInfo}>
+          <Text style={styles.documentDate}>
+            {formatDate(document.createdAt)}
+          </Text>
+          {document.uploaderName && (
+            <Text style={styles.uploaderName}>
+              Đăng bởi: {document.uploaderName}
+            </Text>
+          )}
+          {document.size > 0 && (
+            <Text style={styles.documentSize}>
+              {formatFileSize(document.size)}
+            </Text>
+          )}
+        </View>
+        <View style={styles.typeContainer}>
+          <Text style={[styles.typeText, { color: getDocumentColor(document.type) }]}>
+            {document.type?.toUpperCase() || 'FILE'}
+          </Text>
+        </View>
+      </View>
+    </Card>
+  ));
+
+  const renderDocumentItem = useCallback(({ item: document }) => {
     const canManageThis = canManageDocument(document);
     
     return (
-      <Card containerStyle={styles.documentCard}>
-        <View style={styles.documentHeader}>
-          <TouchableOpacity 
-            style={styles.documentTitleContainer}
-            onPress={() => handleViewDocument(document)}
-            activeOpacity={0.7}
-          >
-            <Icon
-              name={getDocumentIcon(document.type)}
-              size={24}
-              color={getDocumentColor(document.type)}
-              style={styles.documentIcon}
-            />
-            <View style={styles.titleContainer}>
-              <Text style={styles.documentTitle} numberOfLines={2}>
-                {document.title || 'Không có tiêu đề'}
-              </Text>
-              {canManageThis && (
-                <Text style={styles.ownerIndicator}>
-                  Bạn đã tạo
-                </Text>
-              )}
-            </View>
-          </TouchableOpacity>
-          
-          {canManageThis && (
-            <View style={styles.documentActions}>
-              <TouchableOpacity
-                style={styles.actionButton}
-                onPress={() => openEditModal(document)}
-              >
-                <Icon name="edit" size={20} color="#ffc107" />
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.actionButton}
-                onPress={() => handleDeleteDocument(document)}
-              >
-                <Icon name="delete" size={20} color="#dc3545" />
-              </TouchableOpacity>
-            </View>
-          )}
-        </View>
-
-        {document.description ? (
-          <Text style={styles.documentDescription} numberOfLines={3}>
-            {document.description}
-          </Text>
-        ) : null}
-
-        <View style={styles.documentFooter}>
-          <View style={styles.documentInfo}>
-            <Text style={styles.documentDate}>
-              {formatDate(document.createdAt)}
-            </Text>
-            {document.uploaderName && (
-              <Text style={styles.uploaderName}>
-                Đăng bởi: {document.uploaderName}
-              </Text>
-            )}
-            {document.size > 0 && (
-              <Text style={styles.documentSize}>
-                {formatFileSize(document.size)}
-              </Text>
-            )}
-          </View>
-          <View style={styles.typeContainer}>
-            <Text style={[styles.typeText, { color: getDocumentColor(document.type) }]}>
-              {document.type?.toUpperCase() || 'FILE'}
-            </Text>
-          </View>
-        </View>
-      </Card>
+      <DocumentCard
+        document={document}
+        onView={handleViewDocument}
+        onEdit={openEditModal}
+        onDelete={handleDeleteDocument}
+        canManageThis={canManageThis}
+      />
     );
-  };
+  }, [canManageDocument, handleViewDocument, openEditModal, handleDeleteDocument]);
 
-  const renderEmptyComponent = () => (
+  const renderEmptyComponent = useCallback(() => (
     <View style={styles.emptyContainer}>
       <Icon name="folder-open" size={64} color="#adb5bd" />
       <Text style={styles.emptyTitle}>
@@ -440,14 +484,29 @@ const ManageDocumentScreen = ({ route, navigation }) => {
         />
       )}
     </View>
-  );
+  ), [searchQuery, openCreateModal]);
 
-  if (loading && !refreshing) {
+  const renderFooter = useCallback(() => {
+    if (!loadingMore) return null;
+    
+    return (
+      <View style={styles.footerLoader}>
+        <ActivityIndicator size="small" color="#2196F3" />
+        <Text style={styles.loadingText}>Đang tải thêm...</Text>
+      </View>
+    );
+  }, [loadingMore]);
+  const getItemLayout = useCallback((data, index) => ({
+    length: DOCUMENT_ITEM_HEIGHT,
+    offset: DOCUMENT_ITEM_HEIGHT * index,
+    index,
+  }), []);
+
+  const keyExtractor = useCallback((item) => item.id || Math.random().toString(), []);
+
+  if (loading && !refreshing && documents.length === 0) {
     return <LoadingSpinner />;
   }
-
-  const filteredDocuments = getFilteredDocuments();
-  const stats = getDocumentStats();
 
   return (
     <SafeAreaView style={styles.container}>
@@ -514,9 +573,13 @@ const ManageDocumentScreen = ({ route, navigation }) => {
               { type: 'video', label: 'Video', count: stats.video },
               { type: 'link', label: 'Link', count: stats.link },
             ]}
-            renderItem={({ item }) => renderFilterTab(item.type, item.label, item.count)}
+            renderItem={renderFilterTab}
             keyExtractor={(item) => item.type}
             contentContainerStyle={styles.filterList}
+            initialNumToRender={4}
+            maxToRenderPerBatch={4}
+            windowSize={2}
+            removeClippedSubviews={false}
           />
         </View>
 
@@ -543,8 +606,22 @@ const ManageDocumentScreen = ({ route, navigation }) => {
           <FlatList
             data={filteredDocuments}
             renderItem={renderDocumentItem}
-            keyExtractor={(item) => item.id || Math.random().toString()}
+            keyExtractor={keyExtractor}
             ListEmptyComponent={renderEmptyComponent}
+            ListFooterComponent={renderFooter}
+            
+            // Pagination
+            onEndReached={handleLoadMore}
+            onEndReachedThreshold={0.3}
+            
+            // Performance optimizations
+            initialNumToRender={10}
+            maxToRenderPerBatch={5}
+            windowSize={10}
+            removeClippedSubviews={true}
+            getItemLayout={getItemLayout}
+            
+            // Refresh control
             refreshControl={
               <RefreshControl
                 refreshing={refreshing}
@@ -553,6 +630,7 @@ const ManageDocumentScreen = ({ route, navigation }) => {
                 tintColor="#2196F3"
               />
             }
+            
             contentContainerStyle={styles.listContainer}
             showsVerticalScrollIndicator={false}
           />
@@ -984,6 +1062,17 @@ const styles = StyleSheet.create({
   retryButtonText: {
     fontSize: 14,
     fontWeight: '600',
+  },
+  footerLoader: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 20,
+  },
+  loadingText: {
+    marginLeft: 10,
+    color: '#6c757d',
+    fontSize: 14,
   },
   modalOverlay: {
     flex: 1,

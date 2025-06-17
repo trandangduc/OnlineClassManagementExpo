@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { database, storage } from '../services/firebase/config';
 import { storageService } from '../services/firebase/storage';
 import { Document } from '../models/Document';
@@ -12,6 +12,8 @@ import {
   getFileExtension
 } from '../utils/helpers';
 
+const ITEMS_PER_PAGE = 20;
+
 export const useDocumentViewModel = (courseId) => {
   const { userProfile } = useAuth();
   const [documents, setDocuments] = useState([]);
@@ -19,6 +21,10 @@ export const useDocumentViewModel = (courseId) => {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [error, setError] = useState('');
   const [selectedDocument, setSelectedDocument] = useState(null);
+  const [documentsPage, setDocumentsPage] = useState(1);
+  const [hasMoreDocuments, setHasMoreDocuments] = useState(true);
+  const [initialLoadComplete, setInitialLoadComplete] = useState(false);
+  const [paginatedDocuments, setPaginatedDocuments] = useState([]);
 
   useEffect(() => {
     if (!courseId) return;
@@ -51,8 +57,14 @@ export const useDocumentViewModel = (courseId) => {
               
               setDocuments(sortedDocs);
               await CacheService.setDocuments(courseId, sortedDocs);
+              
+              if (!initialLoadComplete) {
+                initializePagination(sortedDocs);
+                setInitialLoadComplete(true);
+              }
             } else {
               setDocuments([]);
+              setPaginatedDocuments([]);
             }
             setLoading(false);
           } catch (error) {
@@ -81,6 +93,104 @@ export const useDocumentViewModel = (courseId) => {
     };
   }, [courseId]);
 
+  const initializePagination = useCallback((docsData) => {
+    setPaginatedDocuments(docsData.slice(0, ITEMS_PER_PAGE));
+    setHasMoreDocuments(docsData.length > ITEMS_PER_PAGE);
+    setDocumentsPage(1);
+  }, []);
+
+  useEffect(() => {
+    if (initialLoadComplete && documents.length > 0) {
+      resetPagination();
+    }
+  }, [documents, initialLoadComplete]);
+
+  const loadMoreDocuments = useCallback(async (reset = false) => {
+    if (loading && !reset) return;
+
+    try {
+      if (reset) {
+        const firstPage = documents.slice(0, ITEMS_PER_PAGE);
+        setPaginatedDocuments(firstPage);
+        setDocumentsPage(1);
+        setHasMoreDocuments(documents.length > ITEMS_PER_PAGE);
+      } else {
+        const currentPage = documentsPage;
+        const startIndex = currentPage * ITEMS_PER_PAGE;
+        const endIndex = startIndex + ITEMS_PER_PAGE;
+        const newDocuments = documents.slice(startIndex, endIndex);
+        
+        if (newDocuments.length > 0) {
+          setPaginatedDocuments(prev => [...prev, ...newDocuments]);
+          setDocumentsPage(prev => prev + 1);
+          setHasMoreDocuments(endIndex < documents.length);
+        } else {
+          setHasMoreDocuments(false);
+        }
+      }
+    } catch (err) {
+      console.error('Error loading more documents:', err);
+      setError('Không thể tải thêm tài liệu');
+    }
+  }, [documents, documentsPage, loading]);
+
+  const resetPagination = useCallback(() => {
+    setPaginatedDocuments(documents.slice(0, ITEMS_PER_PAGE));
+    setDocumentsPage(1);
+    setHasMoreDocuments(documents.length > ITEMS_PER_PAGE);
+  }, [documents]);
+
+  const getDocumentsByType = useCallback((type) => {
+    return paginatedDocuments.filter(doc => doc.type === type);
+  }, [paginatedDocuments]);
+
+  const getPDFDocuments = useCallback(() => {
+    return getDocumentsByType('pdf');
+  }, [getDocumentsByType]);
+
+  const getVideoDocuments = useCallback(() => {
+    return getDocumentsByType('video');
+  }, [getDocumentsByType]);
+
+  const getLinkDocuments = useCallback(() => {
+    return getDocumentsByType('link');
+  }, [getDocumentsByType]);
+
+  const getDocumentById = useCallback((documentId) => {
+    return documents.find(doc => doc.id === documentId); 
+  }, [documents]);
+
+  const canManageDocument = useCallback((document) => {
+    return userProfile && (
+      userProfile.uid === document.uploadedBy ||
+      (userProfile.isTeacher && userProfile.isTeacher())
+    );
+  }, [userProfile]);
+
+  const getDocumentStats = useCallback(() => {
+    return {
+      total: documents.length,
+      pdf: documents.filter(doc => doc.type === 'pdf').length,
+      video: documents.filter(doc => doc.type === 'video').length,
+      link: documents.filter(doc => doc.type === 'link').length
+    };
+  }, [documents]);
+
+  const searchDocuments = useCallback((query) => {
+    if (!query || !query.trim()) {
+      return paginatedDocuments;
+    }
+    return documents.filter(doc => 
+      searchVietnamese(doc.title, query) ||
+      searchVietnamese(doc.description, query) ||
+      searchVietnamese(doc.uploaderName, query)
+    );
+  }, [documents, paginatedDocuments]);
+
+  const getRecentDocuments = useCallback((limit = 5) => {
+    return sortByProperty(documents, 'createdAt', 'desc').slice(0, limit);
+  }, [documents]);
+
   const uploadFile = async (file, fileName, fileType = 'pdf') => {
     try {
       setError('');
@@ -90,7 +200,6 @@ export const useDocumentViewModel = (courseId) => {
         throw new Error('Chưa chọn file');
       }
 
-      // Sử dụng storageService validation thay vì helpers
       const allowedTypes = ['pdf', 'doc', 'docx', 'txt', 'jpg', 'jpeg', 'png'];
       storageService.validateFileType(file, allowedTypes);
       storageService.validateFileSize(file, 10);
@@ -164,10 +273,11 @@ export const useDocumentViewModel = (courseId) => {
       newDocument.uploaderName = userProfile.name || userProfile.getDisplayName?.() || 'Unknown User';
       newDocument.uploaderEmail = userProfile.email;
 
-      // Thêm file size nếu có file
       if (file && file.size) {
         newDocument.size = file.size;
       }
+
+      setPaginatedDocuments(prev => [newDocument, ...prev]);
 
       await newDocumentRef.set(newDocument.toDatabase());
 
@@ -197,6 +307,14 @@ export const useDocumentViewModel = (courseId) => {
           throw new Error('URL không hợp lệ');
         }
       }
+
+      setPaginatedDocuments(prev => 
+        prev.map(doc => 
+          doc.id === documentId 
+            ? { ...doc, ...updateData, updatedAt: Date.now() }
+            : doc
+        )
+      );
       
       const updates = {
         title: updateData.title.trim(),
@@ -232,7 +350,7 @@ export const useDocumentViewModel = (courseId) => {
         throw new Error('ID tài liệu không hợp lệ');
       }
 
-      // Xóa file từ storage nếu là Firebase URL
+      setPaginatedDocuments(prev => prev.filter(doc => doc.id !== documentId));
       if (documentUrl && documentUrl.includes('firebase')) {
         try {
           await storageService.deleteFile(documentUrl);
@@ -303,60 +421,8 @@ export const useDocumentViewModel = (courseId) => {
     }
   };
 
-  const getDocumentsByType = (type) => {
-    return documents.filter(doc => doc.type === type);
-  };
-
-  const getPDFDocuments = () => {
-    return getDocumentsByType('pdf');
-  };
-
-  const getVideoDocuments = () => {
-    return getDocumentsByType('video');
-  };
-
-  const getLinkDocuments = () => {
-    return getDocumentsByType('link');
-  };
-
-  const getDocumentById = (documentId) => {
-    return documents.find(doc => doc.id === documentId);
-  };
-
-  const canManageDocument = (document) => {
-    return userProfile && (
-      userProfile.uid === document.uploadedBy ||
-      (userProfile.isTeacher && userProfile.isTeacher())
-    );
-  };
-
-  const getDocumentStats = () => {
-    return {
-      total: documents.length,
-      pdf: getPDFDocuments().length,
-      video: getVideoDocuments().length,
-      link: getLinkDocuments().length
-    };
-  };
-
-  const searchDocuments = (query) => {
-    if (!query || !query.trim()) {
-      return documents;
-    }
-
-    return documents.filter(doc => 
-      searchVietnamese(doc.title, query) ||
-      searchVietnamese(doc.description, query) ||
-      searchVietnamese(doc.uploaderName, query)
-    );
-  };
-
-  const getRecentDocuments = (limit = 5) => {
-    return sortByProperty(documents, 'createdAt', 'desc').slice(0, limit);
-  };
-
   return {
-    documents,
+    documents: paginatedDocuments,
     selectedDocument,
     loading,
     uploadProgress,
@@ -370,6 +436,8 @@ export const useDocumentViewModel = (courseId) => {
     setSelectedDocument,
     setError,
     clearError: () => setError(''),
+    
+    // Enhanced functions (now work with pagination)
     getDocumentsByType,
     getPDFDocuments,
     getVideoDocuments,
@@ -379,6 +447,12 @@ export const useDocumentViewModel = (courseId) => {
     getDocumentStats,
     searchDocuments,
     getRecentDocuments,
-    isValidUrl
+    isValidUrl,
+    loadMoreDocuments,
+    hasMoreDocuments,
+    resetPagination,
+    documentsPage,
+    allDocuments: documents,
+    totalDocuments: documents.length
   };
 };

@@ -1,9 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { database } from '../services/firebase/config';
 import { Course } from '../models/Course';
 import CacheService from '../services/cache/CacheService';
 import { useAuth } from '../contexts/AuthContext';
 import { searchVietnamese, sortByProperty } from '../utils/helpers';
+
+const ITEMS_PER_PAGE = 10;
 
 export const useCourseViewModel = () => {
   const { userProfile } = useAuth();
@@ -12,6 +14,13 @@ export const useCourseViewModel = () => {
   const [error, setError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCourse, setSelectedCourse] = useState(null);
+  const [userCoursesPage, setUserCoursesPage] = useState(1);
+  const [availableCoursesPage, setAvailableCoursesPage] = useState(1);
+  const [hasMoreUserCourses, setHasMoreUserCourses] = useState(true);
+  const [hasMoreAvailableCourses, setHasMoreAvailableCourses] = useState(true);
+  const [initialLoadComplete, setInitialLoadComplete] = useState(false);
+  const [paginatedUserCourses, setPaginatedUserCourses] = useState([]);
+  const [paginatedAvailableCourses, setPaginatedAvailableCourses] = useState([]);
 
   useEffect(() => {
     let unsubscribe;
@@ -43,6 +52,11 @@ export const useCourseViewModel = () => {
               
               setCourses(sortedCourses);
               await CacheService.setCourses(sortedCourses);
+              
+              if (!initialLoadComplete) {
+                initializePagination(sortedCourses);
+                setInitialLoadComplete(true);
+              }
             } else {
               setCourses([]);
             }
@@ -72,6 +86,138 @@ export const useCourseViewModel = () => {
       }
     };
   }, []);
+
+  const getFilteredCourses = useCallback((coursesData) => {
+    return coursesData.filter(course => {
+      const query = searchQuery.trim();
+      if (!query) return true;
+      
+      return (
+        searchVietnamese(course.title, query) ||
+        searchVietnamese(course.description, query) ||
+        searchVietnamese(course.teacherName, query) ||
+        searchVietnamese(course.subject, query)
+      );
+    });
+  }, [searchQuery]);
+
+  const getUserCoursesFromAll = useCallback((coursesData) => {
+    if (!userProfile) return [];
+    
+    const filtered = getFilteredCourses(coursesData);
+    
+    if (userProfile.isTeacher()) {
+      return filtered.filter(course => course.teacherId === userProfile.uid);
+    } else {
+      return filtered.filter(course => 
+        course.isStudentEnrolled && course.isStudentEnrolled(userProfile.uid)
+      );
+    }
+  }, [userProfile, getFilteredCourses]);
+
+  const getAvailableCoursesFromAll = useCallback((coursesData) => {
+    if (!userProfile || !userProfile.isStudent()) return [];
+    
+    const filtered = getFilteredCourses(coursesData);
+    
+    return filtered.filter(course => 
+      !course.isStudentEnrolled || !course.isStudentEnrolled(userProfile.uid)
+    );
+  }, [userProfile, getFilteredCourses]);
+
+  const initializePagination = useCallback((coursesData) => {
+    const userCourses = getUserCoursesFromAll(coursesData);
+    const availableCourses = getAvailableCoursesFromAll(coursesData);
+    
+    setPaginatedUserCourses(userCourses.slice(0, ITEMS_PER_PAGE));
+    setPaginatedAvailableCourses(availableCourses.slice(0, ITEMS_PER_PAGE));
+    
+    setHasMoreUserCourses(userCourses.length > ITEMS_PER_PAGE);
+    setHasMoreAvailableCourses(availableCourses.length > ITEMS_PER_PAGE);
+    setUserCoursesPage(1);
+    setAvailableCoursesPage(1);
+  }, [getUserCoursesFromAll, getAvailableCoursesFromAll]);
+
+  useEffect(() => {
+    if (initialLoadComplete && courses.length > 0) {
+      resetPagination();
+    }
+  }, [courses, searchQuery, userProfile]);
+
+  const loadMoreUserCourses = useCallback(async (reset = false) => {
+    if (loading && !reset) return;
+
+    try {
+      const allUserCourses = getUserCoursesFromAll(courses);
+      
+      if (reset) {
+        const firstPage = allUserCourses.slice(0, ITEMS_PER_PAGE);
+        setPaginatedUserCourses(firstPage);
+        setUserCoursesPage(1);
+        setHasMoreUserCourses(allUserCourses.length > ITEMS_PER_PAGE);
+      } else {
+        const currentPage = userCoursesPage;
+        const startIndex = currentPage * ITEMS_PER_PAGE;
+        const endIndex = startIndex + ITEMS_PER_PAGE;
+        const newCourses = allUserCourses.slice(startIndex, endIndex);
+        
+        if (newCourses.length > 0) {
+          setPaginatedUserCourses(prev => [...prev, ...newCourses]);
+          setUserCoursesPage(prev => prev + 1);
+          setHasMoreUserCourses(endIndex < allUserCourses.length);
+        } else {
+          setHasMoreUserCourses(false);
+        }
+      }
+    } catch (err) {
+      console.error('Error loading more user courses:', err);
+      setError('Không thể tải thêm môn học');
+    }
+  }, [courses, userCoursesPage, loading, getUserCoursesFromAll]);
+
+  const loadMoreAvailableCourses = useCallback(async (reset = false) => {
+    if (loading && !reset) return;
+
+    try {
+      const allAvailableCourses = getAvailableCoursesFromAll(courses);
+      
+      if (reset) {
+        const firstPage = allAvailableCourses.slice(0, ITEMS_PER_PAGE);
+        setPaginatedAvailableCourses(firstPage);
+        setAvailableCoursesPage(1);
+        setHasMoreAvailableCourses(allAvailableCourses.length > ITEMS_PER_PAGE);
+      } else {
+        const currentPage = availableCoursesPage;
+        const startIndex = currentPage * ITEMS_PER_PAGE;
+        const endIndex = startIndex + ITEMS_PER_PAGE;
+        const newCourses = allAvailableCourses.slice(startIndex, endIndex);
+        
+        if (newCourses.length > 0) {
+          setPaginatedAvailableCourses(prev => [...prev, ...newCourses]);
+          setAvailableCoursesPage(prev => prev + 1);
+          setHasMoreAvailableCourses(endIndex < allAvailableCourses.length);
+        } else {
+          setHasMoreAvailableCourses(false);
+        }
+      }
+    } catch (err) {
+      console.error('Error loading more available courses:', err);
+      setError('Không thể tải thêm môn học khả dụng');
+    }
+  }, [courses, availableCoursesPage, loading, getAvailableCoursesFromAll]);
+
+  const resetPagination = useCallback(() => {
+    const allUserCourses = getUserCoursesFromAll(courses);
+    const allAvailableCourses = getAvailableCoursesFromAll(courses);
+    
+    setPaginatedUserCourses(allUserCourses.slice(0, ITEMS_PER_PAGE));
+    setUserCoursesPage(1);
+    setHasMoreUserCourses(allUserCourses.length > ITEMS_PER_PAGE);
+    
+    setPaginatedAvailableCourses(allAvailableCourses.slice(0, ITEMS_PER_PAGE));
+    setAvailableCoursesPage(1);
+    setHasMoreAvailableCourses(allAvailableCourses.length > ITEMS_PER_PAGE);
+  }, [courses, getUserCoursesFromAll, getAvailableCoursesFromAll]);
 
   const createCourse = async (courseData) => {
     try {
@@ -196,7 +342,6 @@ export const useCourseViewModel = () => {
       throw error;
     }
   };
-
   const joinCourse = async (courseId) => {
     try {
       setError('');
@@ -207,6 +352,12 @@ export const useCourseViewModel = () => {
       
       if (!courseId) {
         throw new Error('ID môn học không hợp lệ');
+      }
+
+      const courseToJoin = paginatedAvailableCourses.find(c => c.id === courseId);
+      if (courseToJoin) {
+        setPaginatedAvailableCourses(prev => prev.filter(c => c.id !== courseId));
+        setPaginatedUserCourses(prev => [courseToJoin, ...prev]);
       }
       
       const studentData = {
@@ -223,6 +374,12 @@ export const useCourseViewModel = () => {
       console.log('Joined course:', courseId);
         
     } catch (error) {
+      const courseToRevert = paginatedUserCourses.find(c => c.id === courseId);
+      if (courseToRevert) {
+        setPaginatedUserCourses(prev => prev.filter(c => c.id !== courseId));
+        setPaginatedAvailableCourses(prev => [courseToRevert, ...prev]);
+      }
+      
       console.error('Join course error:', error);
       const errorMessage = error.message || 'Không thể tham gia môn học';
       setError(errorMessage);
@@ -283,51 +440,24 @@ export const useCourseViewModel = () => {
     }
   };
 
-  const filteredCourses = courses.filter(course => {
-    const query = searchQuery.trim();
-    if (!query) return true;
-    
-    return (
-      searchVietnamese(course.title, query) ||
-      searchVietnamese(course.description, query) ||
-      searchVietnamese(course.teacherName, query) ||
-      searchVietnamese(course.subject, query)
-    );
-  });
+  const filteredCourses = useMemo(() => getFilteredCourses(courses), [courses, getFilteredCourses]);
+  
+  const userCourses = useMemo(() => getUserCoursesFromAll(courses), [courses, getUserCoursesFromAll]);
+  
+  const availableCourses = useMemo(() => getAvailableCoursesFromAll(courses), [courses, getAvailableCoursesFromAll]);
 
-  const getUserCourses = () => {
-    if (!userProfile) return [];
-    
-    if (userProfile.isTeacher()) {
-      return filteredCourses.filter(course => course.teacherId === userProfile.uid);
-    } else {
-      return filteredCourses.filter(course => 
-        course.isStudentEnrolled && course.isStudentEnrolled(userProfile.uid)
-      );
-    }
-  };
-
-  const getAvailableCourses = () => {
-    if (!userProfile || !userProfile.isStudent()) return [];
-    
-    return filteredCourses.filter(course => 
-      !course.isStudentEnrolled || !course.isStudentEnrolled(userProfile.uid)
-    );
-  };
-
-  const getCourseById = (courseId) => {
+  const getCourseById = useCallback((courseId) => {
     return courses.find(course => course.id === courseId);
-  };
+  }, [courses]);
 
-  const canManageCourse = (course) => {
+  const canManageCourse = useCallback((course) => {
     return userProfile && 
            userProfile.isTeacher && 
            userProfile.isTeacher() && 
            course.teacherId === userProfile.uid;
-  };
+  }, [userProfile]);
 
-  const getCoursesStats = () => {
-    const userCourses = getUserCourses();
+  const getCoursesStats = useCallback(() => {
     const totalStudents = userCourses.reduce((sum, course) => {
       const studentCount = course.getStudentCount ? course.getStudentCount() : 0;
       return sum + studentCount;
@@ -338,25 +468,21 @@ export const useCourseViewModel = () => {
       totalStudents,
       averageStudentsPerCourse: userCourses.length > 0 ? Math.round(totalStudents / userCourses.length) : 0
     };
-  };
+  }, [userCourses]);
 
-  const getAllCourses = () => {
-    return filteredCourses;
-  };
-
-  const searchCourses = (query) => {
+  const searchCourses = useCallback((query) => {
     setSearchQuery(query);
-  };
+  }, []);
 
-  const clearSearch = () => {
+  const clearSearch = useCallback(() => {
     setSearchQuery('');
-  };
+  }, []);
 
   return {
     courses: filteredCourses,
-    userCourses: getUserCourses(),
-    availableCourses: getAvailableCourses(),
-    allCourses: getAllCourses(),
+    userCourses: paginatedUserCourses, 
+    availableCourses: paginatedAvailableCourses, 
+    allCourses: filteredCourses,
     selectedCourse,
     loading,
     error,
@@ -374,6 +500,13 @@ export const useCourseViewModel = () => {
     clearError: () => setError(''),
     getCourseById,
     canManageCourse,
-    getCoursesStats
+    getCoursesStats,
+    loadMoreUserCourses,
+    loadMoreAvailableCourses,
+    hasMoreUserCourses,
+    hasMoreAvailableCourses,
+    resetPagination,
+    userCoursesPage,
+    availableCoursesPage
   };
 };

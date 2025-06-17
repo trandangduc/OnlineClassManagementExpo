@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -11,7 +11,8 @@ import {
   Modal,
   KeyboardAvoidingView,
   Platform,
-  ScrollView
+  ScrollView,
+  ActivityIndicator
 } from 'react-native';
 import { SearchBar, Card, Button, Input, Header } from 'react-native-elements';
 import Icon from 'react-native-vector-icons/MaterialIcons';
@@ -25,6 +26,8 @@ import {
 } from '../../utils/validators';
 import { formatDate } from '../../utils/helpers';
 
+const COURSE_ITEM_HEIGHT = 280; 
+
 const ManageCourseScreen = ({ navigation }) => {
   const {
     userCourses,
@@ -36,15 +39,19 @@ const ManageCourseScreen = ({ navigation }) => {
     updateCourse,
     deleteCourse,
     getCoursesStats,
-    clearError
+    clearError,
+    loadMoreUserCourses,
+    hasMoreUserCourses,
+    resetPagination
   } = useCourseViewModel();
 
   const { handleSignOut, userProfile, getUserDisplayName } = useAuthViewModel();
-
+  
   const [refreshing, setRefreshing] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingCourse, setEditingCourse] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   const {
     control,
@@ -60,6 +67,20 @@ const ManageCourseScreen = ({ navigation }) => {
     }
   });
 
+  const filteredCourses = useMemo(() => {
+    if (!searchQuery.trim()) return userCourses;
+    
+    const query = searchQuery.toLowerCase();
+    return userCourses.filter(course => 
+      course.title?.toLowerCase().includes(query) ||
+      course.description?.toLowerCase().includes(query) ||
+      course.subject?.toLowerCase().includes(query) ||
+      course.semester?.toLowerCase().includes(query)
+    );
+  }, [userCourses, searchQuery]);
+
+  const stats = useMemo(() => getCoursesStats(), [getCoursesStats]);
+
   useEffect(() => {
     if (userProfile && !userProfile.isTeacher?.()) {
       Alert.alert(
@@ -70,13 +91,36 @@ const ManageCourseScreen = ({ navigation }) => {
     }
   }, [userProfile, navigation]);
 
-  const onRefresh = async () => {
+  const onRefresh = useCallback(async () => {
     setRefreshing(true);
     clearError();
-    setTimeout(() => setRefreshing(false), 1000);
-  };
+    resetPagination();
+    
+    try {
+      await loadMoreUserCourses(true); 
+    } catch (error) {
+      console.error('Refresh error:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [clearError, resetPagination, loadMoreUserCourses]);
 
-  const openCreateModal = () => {
+  const handleLoadMore = useCallback(async () => {
+    if (loadingMore || loading || !hasMoreUserCourses || searchQuery.trim()) {
+      return; 
+    }
+
+    setLoadingMore(true);
+    try {
+      await loadMoreUserCourses();
+    } catch (error) {
+      console.error('Load more error:', error);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [loadingMore, loading, hasMoreUserCourses, searchQuery, loadMoreUserCourses]);
+
+  const openCreateModal = useCallback(() => {
     setEditingCourse(null);
     reset({
       title: '',
@@ -85,9 +129,9 @@ const ManageCourseScreen = ({ navigation }) => {
       semester: ''
     });
     setModalVisible(true);
-  };
+  }, [reset]);
 
-  const openEditModal = (course) => {
+  const openEditModal = useCallback((course) => {
     setEditingCourse(course);
     reset({
       title: course.title || '',
@@ -96,9 +140,9 @@ const ManageCourseScreen = ({ navigation }) => {
       semester: course.semester || ''
     });
     setModalVisible(true);
-  };
+  }, [reset]);
 
-  const closeModal = () => {
+  const closeModal = useCallback(() => {
     setModalVisible(false);
     setEditingCourse(null);
     setSubmitting(false);
@@ -108,9 +152,9 @@ const ManageCourseScreen = ({ navigation }) => {
       subject: '',
       semester: ''
     });
-  };
+  }, [reset]);
 
-  const onSubmit = async (data) => {
+  const onSubmit = useCallback(async (data) => {
     try {
       setSubmitting(true);
       const cleanData = {
@@ -134,9 +178,9 @@ const ManageCourseScreen = ({ navigation }) => {
     } finally {
       setSubmitting(false);
     }
-  };
+  }, [editingCourse, updateCourse, createCourse, closeModal]);
 
-  const handleDeleteCourse = (course) => {
+  const handleDeleteCourse = useCallback((course) => {
     Alert.alert(
       'Xóa môn học',
       `Bạn có chắc muốn xóa môn học "${course.title}"?\n\nTất cả tài liệu và dữ liệu liên quan sẽ bị xóa vĩnh viễn. Hành động này không thể hoàn tác.`,
@@ -157,24 +201,35 @@ const ManageCourseScreen = ({ navigation }) => {
         }
       ]
     );
-  };
+  }, [deleteCourse]);
 
-  const handleViewCourse = (course) => {
+  const handleViewCourse = useCallback((course) => {
     navigation.navigate('CourseDetail', {
       course,
       courseId: course.id
     });
-  };
+  }, [navigation]);
 
-  const handleManageDocuments = (course) => {
+  const handleManageDocuments = useCallback((course) => {
     navigation.navigate('ManageDocument', {
       course,
       courseId: course.id,
       courseName: course.title
     });
-  };
+  }, [navigation]);
 
-  const getStudentCount = (course) => {
+  const handleSignOutPress = useCallback(() => {
+    Alert.alert(
+      'Đăng xuất',
+      'Bạn có chắc muốn đăng xuất?',
+      [
+        { text: 'Hủy', style: 'cancel' },
+        { text: 'Đăng xuất', onPress: handleSignOut }
+      ]
+    );
+  }, [handleSignOut]);
+
+  const getStudentCount = useCallback((course) => {
     try {
       if (course.getStudentCount && typeof course.getStudentCount === 'function') {
         return course.getStudentCount();
@@ -189,15 +244,14 @@ const ManageCourseScreen = ({ navigation }) => {
       console.warn('Error getting student count:', error);
       return 0;
     }
-  };
-
-  const renderCourseItem = ({ item: course }) => {
+  }, []);
+  const CourseCard = React.memo(({ course, onView, onEdit, onDelete, onManageDocuments, getStudentCount }) => {
     const studentCount = getStudentCount(course);
     
     return (
       <Card containerStyle={styles.courseCard}>
         <TouchableOpacity
-          onPress={() => handleViewCourse(course)}
+          onPress={() => onView(course)}
           activeOpacity={0.7}
         >
           <View style={styles.courseHeader}>
@@ -214,23 +268,21 @@ const ManageCourseScreen = ({ navigation }) => {
             <View style={styles.courseActions}>
               <TouchableOpacity
                 style={styles.actionButton}
-                onPress={() => openEditModal(course)}
+                onPress={() => onEdit(course)}
               >
                 <Icon name="edit" size={20} color="#ffc107" />
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.actionButton}
-                onPress={() => handleDeleteCourse(course)}
+                onPress={() => onDelete(course)}
               >
                 <Icon name="delete" size={20} color="#dc3545" />
               </TouchableOpacity>
             </View>
           </View>
-
           <Text style={styles.courseDescription} numberOfLines={3}>
             {course.description || 'Không có mô tả'}
           </Text>
-
           <View style={styles.courseInfo}>
             <View style={styles.infoRow}>
               <View style={styles.infoItem}>
@@ -259,11 +311,10 @@ const ManageCourseScreen = ({ navigation }) => {
             )}
           </View>
         </TouchableOpacity>
-
         <View style={styles.courseButtons}>
           <Button
             title="Tài liệu"
-            onPress={() => handleManageDocuments(course)}
+            onPress={() => onManageDocuments(course)}
             buttonStyle={[styles.actionButtonStyle, styles.documentsButton]}
             titleStyle={styles.actionButtonText}
             icon={
@@ -278,9 +329,20 @@ const ManageCourseScreen = ({ navigation }) => {
         </View>
       </Card>
     );
-  };
+  });
 
-  const renderEmptyComponent = () => (
+  const renderCourseItem = useCallback(({ item: course }) => (
+    <CourseCard
+      course={course}
+      onView={handleViewCourse}
+      onEdit={openEditModal}
+      onDelete={handleDeleteCourse}
+      onManageDocuments={handleManageDocuments}
+      getStudentCount={getStudentCount}
+    />
+  ), [handleViewCourse, openEditModal, handleDeleteCourse, handleManageDocuments, getStudentCount]);
+
+  const renderEmptyComponent = useCallback(() => (
     <View style={styles.emptyContainer}>
       <Icon name="school" size={64} color="#adb5bd" />
       <Text style={styles.emptyTitle}>Chưa có môn học nào</Text>
@@ -302,13 +364,30 @@ const ManageCourseScreen = ({ navigation }) => {
         }
       />
     </View>
-  );
+  ), [openCreateModal]);
 
-  if (loading && !refreshing) {
+  const renderFooter = useCallback(() => {
+    if (!loadingMore) return null;
+    
+    return (
+      <View style={styles.footerLoader}>
+        <ActivityIndicator size="small" color="#2196F3" />
+        <Text style={styles.loadingText}>Đang tải thêm...</Text>
+      </View>
+    );
+  }, [loadingMore]);
+
+  const getItemLayout = useCallback((data, index) => ({
+    length: COURSE_ITEM_HEIGHT,
+    offset: COURSE_ITEM_HEIGHT * index,
+    index,
+  }), []);
+
+  const keyExtractor = useCallback((item) => item.id || Math.random().toString(), []);
+
+  if (loading && !refreshing && userCourses.length === 0) {
     return <LoadingSpinner />;
   }
-
-  const stats = getCoursesStats();
 
   return (
     <SafeAreaView style={styles.container}>
@@ -320,16 +399,7 @@ const ManageCourseScreen = ({ navigation }) => {
         rightComponent={{
           icon: 'logout',
           color: '#fff',
-          onPress: () => {
-            Alert.alert(
-              'Đăng xuất',
-              'Bạn có chắc muốn đăng xuất?',
-              [
-                { text: 'Hủy', style: 'cancel' },
-                { text: 'Đăng xuất', onPress: handleSignOut }
-              ]
-            );
-          }
+          onPress: handleSignOutPress
         }}
         backgroundColor="#2196F3"
       />
@@ -368,7 +438,6 @@ const ManageCourseScreen = ({ navigation }) => {
             searchIcon={{ color: '#2196F3' }}
             clearIcon={{ color: '#2196F3' }}
           />
-
           <Button
             title="Tạo môn học"
             onPress={openCreateModal}
@@ -397,10 +466,18 @@ const ManageCourseScreen = ({ navigation }) => {
           </View>
         ) : (
           <FlatList
-            data={userCourses}
+            data={filteredCourses}
             renderItem={renderCourseItem}
-            keyExtractor={(item) => item.id || Math.random().toString()}
+            keyExtractor={keyExtractor}
             ListEmptyComponent={renderEmptyComponent}
+            ListFooterComponent={renderFooter}
+            onEndReached={handleLoadMore}
+            onEndReachedThreshold={0.3}
+            initialNumToRender={8}
+            maxToRenderPerBatch={4}
+            windowSize={10}
+            removeClippedSubviews={true}
+            getItemLayout={getItemLayout}
             refreshControl={
               <RefreshControl
                 refreshing={refreshing}
@@ -409,6 +486,7 @@ const ManageCourseScreen = ({ navigation }) => {
                 tintColor="#2196F3"
               />
             }
+            
             contentContainerStyle={styles.listContainer}
             showsVerticalScrollIndicator={false}
           />
@@ -760,6 +838,17 @@ const styles = StyleSheet.create({
   retryButtonText: {
     fontSize: 14,
     fontWeight: '600',
+  },
+  footerLoader: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 20,
+  },
+  loadingText: {
+    marginLeft: 10,
+    color: '#6c757d',
+    fontSize: 14,
   },
   modalOverlay: {
     flex: 1,

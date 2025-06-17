@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -7,13 +7,17 @@ import {
   FlatList,
   RefreshControl,
   Alert,
-  TouchableOpacity
+  TouchableOpacity,
+  ActivityIndicator
 } from 'react-native';
 import { SearchBar, Card, Button, Badge, Header } from 'react-native-elements';
 import { useCourseViewModel } from '../../viewmodels/CourseViewModel';
 import { useAuthViewModel } from '../../viewmodels/AuthViewModel';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import { formatDate } from '../../utils/helpers';
+
+const ITEMS_PER_PAGE = 20;
+const COURSE_ITEM_HEIGHT = 220; 
 
 const CourseListScreen = ({ navigation }) => {
   const {
@@ -24,13 +28,38 @@ const CourseListScreen = ({ navigation }) => {
     searchQuery,
     setSearchQuery,
     joinCourse,
-    clearError
+    clearError,
+    loadMoreUserCourses,
+    loadMoreAvailableCourses,
+    hasMoreUserCourses,
+    hasMoreAvailableCourses,
+    resetPagination
   } = useCourseViewModel();
   
   const { userProfile, handleSignOut, getUserDisplayName, getUserRole } = useAuthViewModel();
   
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState('enrolled');
+  const [loadingMore, setLoadingMore] = useState(false);
+
+  const currentCourses = useMemo(() => {
+    return activeTab === 'enrolled' ? userCourses : availableCourses;
+  }, [activeTab, userCourses, availableCourses]);
+
+  const hasMoreData = useMemo(() => {
+    return activeTab === 'enrolled' ? hasMoreUserCourses : hasMoreAvailableCourses;
+  }, [activeTab, hasMoreUserCourses, hasMoreAvailableCourses]);
+
+  const filteredCourses = useMemo(() => {
+    if (!searchQuery.trim()) return currentCourses;
+    
+    return currentCourses.filter(course => 
+      course.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      course.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      course.teacherName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      course.subject?.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+  }, [currentCourses, searchQuery]);
 
   useEffect(() => {
     if (userProfile) {
@@ -38,13 +67,51 @@ const CourseListScreen = ({ navigation }) => {
     }
   }, [userProfile]);
 
-  const onRefresh = async () => {
+  const onRefresh = useCallback(async () => {
     setRefreshing(true);
     clearError();
-    setTimeout(() => setRefreshing(false), 1000);
-  };
+    resetPagination();
+    
+    try {
+      if (activeTab === 'enrolled') {
+        await loadMoreUserCourses(true);
+      } else {
+        await loadMoreAvailableCourses(true);
+      }
+    } catch (error) {
+      console.error('Refresh error:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [activeTab, clearError, resetPagination, loadMoreUserCourses, loadMoreAvailableCourses]);
 
-  const handleJoinCourse = async (courseId, courseTitle) => {
+  const handleLoadMore = useCallback(async () => {
+    if (loadingMore || loading || !hasMoreData || searchQuery.trim()) {
+      return; 
+    }
+
+    setLoadingMore(true);
+    try {
+      if (activeTab === 'enrolled') {
+        await loadMoreUserCourses();
+      } else {
+        await loadMoreAvailableCourses();
+      }
+    } catch (error) {
+      console.error('Load more error:', error);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [loadingMore, loading, hasMoreData, searchQuery, activeTab, loadMoreUserCourses, loadMoreAvailableCourses]);
+
+  const handleTabChange = useCallback((newTab) => {
+    if (newTab !== activeTab) {
+      setActiveTab(newTab);
+      setSearchQuery(''); 
+    }
+  }, [activeTab, setSearchQuery]);
+
+  const handleJoinCourse = useCallback(async (courseId, courseTitle) => {
     try {
       if (!userProfile) {
         Alert.alert('Lỗi', 'Vui lòng đăng nhập lại');
@@ -74,9 +141,9 @@ const CourseListScreen = ({ navigation }) => {
     } catch (error) {
       Alert.alert('Lỗi', error.message);
     }
-  };
+  }, [userProfile, joinCourse]);
 
-  const handleCoursePress = (course) => {
+  const handleCoursePress = useCallback((course) => {
     if (!course || !course.id) {
       Alert.alert('Lỗi', 'Thông tin môn học không hợp lệ');
       return;
@@ -86,9 +153,9 @@ const CourseListScreen = ({ navigation }) => {
       course,
       courseId: course.id 
     });
-  };
+  }, [navigation]);
 
-  const handleSignOutPress = () => {
+  const handleSignOutPress = useCallback(() => {
     Alert.alert(
       'Đăng xuất',
       'Bạn có chắc muốn đăng xuất?',
@@ -106,9 +173,9 @@ const CourseListScreen = ({ navigation }) => {
         }
       ]
     );
-  };
+  }, [handleSignOut]);
 
-  const getStudentCount = (course) => {
+  const getStudentCount = useCallback((course) => {
     try {
       if (course.getStudentCount && typeof course.getStudentCount === 'function') {
         return course.getStudentCount();
@@ -122,73 +189,82 @@ const CourseListScreen = ({ navigation }) => {
       console.warn('Error getting student count:', error);
       return 0;
     }
-  };
+  }, []);
 
-  const renderCourseItem = ({ item: course }) => {
+  const renderCourseItem = useCallback(({ item: course }) => {
     const isEnrolled = activeTab === 'enrolled';
     const studentCount = getStudentCount(course);
     
     return (
-      <TouchableOpacity
+      <CourseCard
+        course={course}
+        isEnrolled={isEnrolled}
+        studentCount={studentCount}
         onPress={() => handleCoursePress(course)}
-        activeOpacity={0.7}
-      >
-        <Card containerStyle={styles.courseCard}>
-          <View style={styles.courseHeader}>
-            <View style={styles.courseTitleContainer}>
-              <Text style={styles.courseTitle} numberOfLines={2}>
-                {course.title || 'Không có tiêu đề'}
-              </Text>
-              {isEnrolled && (
-                <Badge
-                  value="Đã tham gia"
-                  status="success"
-                  containerStyle={styles.badgeContainer}
-                  textStyle={styles.badgeText}
-                />
-              )}
-            </View>
-          </View>
-          
-          <Text style={styles.courseDescription} numberOfLines={3}>
-            {course.description || 'Không có mô tả'}
-          </Text>
-          
-          <View style={styles.courseFooter}>
-            <View style={styles.courseInfo}>
-              <Text style={styles.teacherName}>
-                Giảng viên: {course.teacherName || 'Không xác định'}
-              </Text>
-              <Text style={styles.studentCount}>
-                {studentCount} học sinh
-              </Text>
-              {course.subject && (
-                <Text style={styles.courseSubject}>
-                  Môn: {course.subject}
-                </Text>
-              )}
-            </View>
-            
-            {!isEnrolled && userProfile?.isStudent?.() && (
-              <Button
-                title="Tham gia"
-                onPress={() => handleJoinCourse(course.id, course.title)}
-                buttonStyle={styles.joinButton}
-                titleStyle={styles.joinButtonText}
-                disabled={loading}
+        onJoin={() => handleJoinCourse(course.id, course.title)}
+        showJoinButton={!isEnrolled && userProfile?.isStudent?.()}
+        loading={loading}
+      />
+    );
+  }, [activeTab, getStudentCount, handleCoursePress, handleJoinCourse, userProfile, loading]);
+
+  const CourseCard = React.memo(({ course, isEnrolled, studentCount, onPress, onJoin, showJoinButton, loading }) => (
+    <TouchableOpacity onPress={onPress} activeOpacity={0.7}>
+      <Card containerStyle={styles.courseCard}>
+        <View style={styles.courseHeader}>
+          <View style={styles.courseTitleContainer}>
+            <Text style={styles.courseTitle} numberOfLines={2}>
+              {course.title || 'Không có tiêu đề'}
+            </Text>
+            {isEnrolled && (
+              <Badge
+                value="Đã tham gia"
+                status="success"
+                containerStyle={styles.badgeContainer}
+                textStyle={styles.badgeText}
               />
             )}
           </View>
+        </View>
+        
+        <Text style={styles.courseDescription} numberOfLines={3}>
+          {course.description || 'Không có mô tả'}
+        </Text>
+        
+        <View style={styles.courseFooter}>
+          <View style={styles.courseInfo}>
+            <Text style={styles.teacherName}>
+              Giảng viên: {course.teacherName || 'Không xác định'}
+            </Text>
+            <Text style={styles.studentCount}>
+              {studentCount} học sinh
+            </Text>
+            {course.subject && (
+              <Text style={styles.courseSubject}>
+                Môn: {course.subject}
+              </Text>
+            )}
+          </View>
           
-          <Text style={styles.createdDate}>
-            Tạo: {formatDate(course.createdAt)}
-          </Text>
-        </Card>
-      </TouchableOpacity>
-    );
-  };
+          {showJoinButton && (
+            <Button
+              title="Tham gia"
+              onPress={onJoin}
+              buttonStyle={styles.joinButton}
+              titleStyle={styles.joinButtonText}
+              disabled={loading}
+            />
+          )}
+        </View>
+        
+        <Text style={styles.createdDate}>
+          Tạo: {formatDate(course.createdAt)}
+        </Text>
+      </Card>
+    </TouchableOpacity>
+  ));
 
-  const renderEmptyComponent = () => (
+  const renderEmptyComponent = useCallback(() => (
     <View style={styles.emptyContainer}>
       <Text style={styles.emptyTitle}>
         {activeTab === 'enrolled' 
@@ -214,11 +290,28 @@ const CourseListScreen = ({ navigation }) => {
         />
       )}
     </View>
-  );
+  ), [activeTab, userProfile, navigation]);
 
-  const currentCourses = activeTab === 'enrolled' ? userCourses : availableCourses;
+  const renderFooter = useCallback(() => {
+    if (!loadingMore) return null;
+    
+    return (
+      <View style={styles.footerLoader}>
+        <ActivityIndicator size="small" color="#2196F3" />
+        <Text style={styles.loadingText}>Đang tải thêm...</Text>
+      </View>
+    );
+  }, [loadingMore]);
 
-  if (loading && !refreshing) {
+  const getItemLayout = useCallback((data, index) => ({
+    length: COURSE_ITEM_HEIGHT,
+    offset: COURSE_ITEM_HEIGHT * index,
+    index,
+  }), []);
+
+  const keyExtractor = useCallback((item) => item.id || Math.random().toString(), []);
+
+  if (loading && !refreshing && currentCourses.length === 0) {
     return <LoadingSpinner />;
   }
 
@@ -269,7 +362,7 @@ const CourseListScreen = ({ navigation }) => {
               styles.tab,
               activeTab === 'enrolled' && styles.activeTab
             ]}
-            onPress={() => setActiveTab('enrolled')}
+            onPress={() => handleTabChange('enrolled')}
           >
             <Text style={[
               styles.tabText,
@@ -285,7 +378,7 @@ const CourseListScreen = ({ navigation }) => {
                 styles.tab,
                 activeTab === 'available' && styles.activeTab
               ]}
-              onPress={() => setActiveTab('available')}
+              onPress={() => handleTabChange('available')}
             >
               <Text style={[
                 styles.tabText,
@@ -309,10 +402,18 @@ const CourseListScreen = ({ navigation }) => {
           </View>
         ) : (
           <FlatList
-            data={currentCourses}
+            data={filteredCourses}
             renderItem={renderCourseItem}
-            keyExtractor={(item) => item.id || Math.random().toString()}
+            keyExtractor={keyExtractor}
             ListEmptyComponent={renderEmptyComponent}
+            ListFooterComponent={renderFooter}
+            onEndReached={handleLoadMore}
+            onEndReachedThreshold={0.3}
+            initialNumToRender={10}
+            maxToRenderPerBatch={5}
+            windowSize={10}
+            removeClippedSubviews={true}
+            getItemLayout={getItemLayout}
             refreshControl={
               <RefreshControl
                 refreshing={refreshing}
@@ -321,6 +422,7 @@ const CourseListScreen = ({ navigation }) => {
                 tintColor="#2196F3"
               />
             }
+            
             contentContainerStyle={styles.listContainer}
             showsVerticalScrollIndicator={false}
           />
@@ -537,6 +639,17 @@ const styles = StyleSheet.create({
   retryButtonText: {
     fontSize: 14,
     fontWeight: '600',
+  },
+  footerLoader: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 20,
+  },
+  loadingText: {
+    marginLeft: 10,
+    color: '#6c757d',
+    fontSize: 14,
   },
 });
 
