@@ -3,6 +3,10 @@ import { View, Text, StyleSheet } from 'react-native';
 import { Input, Button } from 'react-native-elements';
 import { useForm, Controller } from 'react-hook-form';
 import Icon from 'react-native-vector-icons/MaterialIcons';
+import { 
+  courseTitleValidator, 
+  courseDescriptionValidator 
+} from '../../utils/validators';
 
 const CourseForm = ({ 
   onSubmit, 
@@ -18,7 +22,9 @@ const CourseForm = ({
   } = useForm({
     defaultValues: {
       title: initialData?.title || '',
-      description: initialData?.description || ''
+      description: initialData?.description || '',
+      subject: initialData?.subject || '',
+      semester: initialData?.semester || ''
     }
   });
 
@@ -27,20 +33,10 @@ const CourseForm = ({
       <Controller
         control={control}
         name="title"
-        rules={{
-          required: 'Tên môn học là bắt buộc',
-          minLength: {
-            value: 2,
-            message: 'Tên môn học tối thiểu 2 ký tự'
-          },
-          maxLength: {
-            value: 100,
-            message: 'Tên môn học tối đa 100 ký tự'
-          }
-        }}
+        rules={courseTitleValidator}
         render={({ field: { onChange, onBlur, value } }) => (
           <Input
-            placeholder="Tên môn học"
+            placeholder="Tên môn học *"
             value={value}
             onBlur={onBlur}
             onChangeText={onChange}
@@ -60,13 +56,52 @@ const CourseForm = ({
 
       <Controller
         control={control}
+        name="subject"
+        render={({ field: { onChange, onBlur, value } }) => (
+          <Input
+            placeholder="Môn học (VD: Toán học, Vật lý...)"
+            value={value}
+            onBlur={onBlur}
+            onChangeText={onChange}
+            leftIcon={{ 
+              type: 'material', 
+              name: 'book',
+              color: '#2196F3'
+            }}
+            containerStyle={styles.inputContainer}
+            inputStyle={styles.inputText}
+            errorStyle={styles.errorText}
+            disabled={loading}
+          />
+        )}
+      />
+
+      <Controller
+        control={control}
+        name="semester"
+        render={({ field: { onChange, onBlur, value } }) => (
+          <Input
+            placeholder="Học kỳ (VD: HK1 2024-2025)"
+            value={value}
+            onBlur={onBlur}
+            onChangeText={onChange}
+            leftIcon={{ 
+              type: 'material', 
+              name: 'schedule',
+              color: '#2196F3'
+            }}
+            containerStyle={styles.inputContainer}
+            inputStyle={styles.inputText}
+            errorStyle={styles.errorText}
+            disabled={loading}
+          />
+        )}
+      />
+
+      <Controller
+        control={control}
         name="description"
-        rules={{
-          maxLength: {
-            value: 500,
-            message: 'Mô tả tối đa 500 ký tự'
-          }
-        }}
+        rules={courseDescriptionValidator}
         render={({ field: { onChange, onBlur, value } }) => (
           <Input
             placeholder="Mô tả môn học (tùy chọn)"

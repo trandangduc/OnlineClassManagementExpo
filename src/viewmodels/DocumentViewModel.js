@@ -436,8 +436,6 @@ export const useDocumentViewModel = (courseId) => {
     setSelectedDocument,
     setError,
     clearError: () => setError(''),
-    
-    // Enhanced functions (now work with pagination)
     getDocumentsByType,
     getPDFDocuments,
     getVideoDocuments,

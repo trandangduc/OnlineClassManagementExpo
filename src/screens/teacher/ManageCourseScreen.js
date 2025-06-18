@@ -14,16 +14,13 @@ import {
   ScrollView,
   ActivityIndicator
 } from 'react-native';
-import { SearchBar, Card, Button, Input, Header } from 'react-native-elements';
+import { SearchBar, Card, Button } from 'react-native-elements';
 import Icon from 'react-native-vector-icons/MaterialIcons';
-import { useForm, Controller } from 'react-hook-form';
+import Header from '../../components/common/Header'; 
+import CourseForm from '../../components/forms/CourseForm';
 import { useCourseViewModel } from '../../viewmodels/CourseViewModel';
 import { useAuthViewModel } from '../../viewmodels/AuthViewModel';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
-import { 
-  courseTitleValidator, 
-  courseDescriptionValidator 
-} from '../../utils/validators';
 import { formatDate } from '../../utils/helpers';
 
 const COURSE_ITEM_HEIGHT = 280; 
@@ -44,7 +41,6 @@ const ManageCourseScreen = ({ navigation }) => {
     hasMoreUserCourses,
     resetPagination
   } = useCourseViewModel();
-
   const { handleSignOut, userProfile, getUserDisplayName } = useAuthViewModel();
   
   const [refreshing, setRefreshing] = useState(false);
@@ -52,20 +48,6 @@ const ManageCourseScreen = ({ navigation }) => {
   const [editingCourse, setEditingCourse] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
-
-  const {
-    control,
-    handleSubmit,
-    reset,
-    formState: { errors }
-  } = useForm({
-    defaultValues: {
-      title: '',
-      description: '',
-      subject: '',
-      semester: ''
-    }
-  });
 
   const filteredCourses = useMemo(() => {
     if (!searchQuery.trim()) return userCourses;
@@ -109,7 +91,6 @@ const ManageCourseScreen = ({ navigation }) => {
     if (loadingMore || loading || !hasMoreUserCourses || searchQuery.trim()) {
       return; 
     }
-
     setLoadingMore(true);
     try {
       await loadMoreUserCourses();
@@ -122,37 +103,19 @@ const ManageCourseScreen = ({ navigation }) => {
 
   const openCreateModal = useCallback(() => {
     setEditingCourse(null);
-    reset({
-      title: '',
-      description: '',
-      subject: '',
-      semester: ''
-    });
     setModalVisible(true);
-  }, [reset]);
+  }, []);
 
   const openEditModal = useCallback((course) => {
     setEditingCourse(course);
-    reset({
-      title: course.title || '',
-      description: course.description || '',
-      subject: course.subject || '',
-      semester: course.semester || ''
-    });
     setModalVisible(true);
-  }, [reset]);
+  }, []);
 
   const closeModal = useCallback(() => {
     setModalVisible(false);
     setEditingCourse(null);
     setSubmitting(false);
-    reset({
-      title: '',
-      description: '',
-      subject: '',
-      semester: ''
-    });
-  }, [reset]);
+  }, []);
 
   const onSubmit = useCallback(async (data) => {
     try {
@@ -245,6 +208,7 @@ const ManageCourseScreen = ({ navigation }) => {
       return 0;
     }
   }, []);
+
   const CourseCard = React.memo(({ course, onView, onEdit, onDelete, onManageDocuments, getStudentCount }) => {
     const studentCount = getStudentCount(course);
     
@@ -392,15 +356,9 @@ const ManageCourseScreen = ({ navigation }) => {
   return (
     <SafeAreaView style={styles.container}>
       <Header
-        centerComponent={{
-          text: 'Quản lý môn học',
-          style: styles.headerTitle
-        }}
-        rightComponent={{
-          icon: 'logout',
-          color: '#fff',
-          onPress: handleSignOutPress
-        }}
+        title="Quản lý môn học"
+        rightIcon="logout"
+        onRightPress={handleSignOutPress}
         backgroundColor="#2196F3"
       />
 
@@ -486,7 +444,6 @@ const ManageCourseScreen = ({ navigation }) => {
                 tintColor="#2196F3"
               />
             }
-            
             contentContainerStyle={styles.listContainer}
             showsVerticalScrollIndicator={false}
           />
@@ -516,78 +473,12 @@ const ManageCourseScreen = ({ navigation }) => {
                   <Icon name="close" size={24} color="#6c757d" />
                 </TouchableOpacity>
               </View>
-
-              <Controller
-                control={control}
-                name="title"
-                rules={courseTitleValidator}
-                render={({ field: { onChange, onBlur, value } }) => (
-                  <Input
-                    placeholder="Tên môn học *"
-                    value={value}
-                    onBlur={onBlur}
-                    onChangeText={onChange}
-                    leftIcon={{ type: 'material', name: 'school', color: '#2196F3' }}
-                    errorMessage={errors.title?.message}
-                    containerStyle={styles.inputContainer}
-                    inputStyle={styles.inputText}
-                    errorStyle={styles.errorTextInput}
-                  />
-                )}
-              />
-
-              <Controller
-                control={control}
-                name="subject"
-                render={({ field: { onChange, onBlur, value } }) => (
-                  <Input
-                    placeholder="Môn học (VD: Toán học, Vật lý...)"
-                    value={value}
-                    onBlur={onBlur}
-                    onChangeText={onChange}
-                    leftIcon={{ type: 'material', name: 'book', color: '#2196F3' }}
-                    containerStyle={styles.inputContainer}
-                    inputStyle={styles.inputText}
-                    errorStyle={styles.errorTextInput}
-                  />
-                )}
-              />
-
-              <Controller
-                control={control}
-                name="semester"
-                render={({ field: { onChange, onBlur, value } }) => (
-                  <Input
-                    placeholder="Học kỳ (VD: HK1 2024-2025)"
-                    value={value}
-                    onBlur={onBlur}
-                    onChangeText={onChange}
-                    leftIcon={{ type: 'material', name: 'schedule', color: '#2196F3' }}
-                    containerStyle={styles.inputContainer}
-                    inputStyle={styles.inputText}
-                    errorStyle={styles.errorTextInput}
-                  />
-                )}
-              />
-
-              <Controller
-                control={control}
-                name="description"
-                rules={courseDescriptionValidator}
-                render={({ field: { onChange, onBlur, value } }) => (
-                  <Input
-                    placeholder="Mô tả môn học (tùy chọn)"
-                    value={value}
-                    onBlur={onBlur}
-                    onChangeText={onChange}
-                    multiline
-                    numberOfLines={4}
-                    leftIcon={{ type: 'material', name: 'description', color: '#2196F3' }}
-                    containerStyle={styles.inputContainer}
-                    inputStyle={[styles.inputText, styles.textAreaInput]}
-                    errorStyle={styles.errorTextInput}
-                  />
-                )}
+              <CourseForm
+                onSubmit={onSubmit}
+                initialData={editingCourse}
+                loading={submitting}
+                error={error}
+                submitButtonTitle={editingCourse ? 'Cập nhật' : 'Tạo môn học'}
               />
 
               <View style={styles.modalButtons}>
@@ -597,14 +488,6 @@ const ManageCourseScreen = ({ navigation }) => {
                   buttonStyle={styles.cancelButton}
                   titleStyle={styles.cancelButtonText}
                   type="outline"
-                  disabled={submitting}
-                />
-                <Button
-                  title={editingCourse ? 'Cập nhật' : 'Tạo'}
-                  onPress={handleSubmit(onSubmit)}
-                  buttonStyle={styles.submitButton}
-                  titleStyle={styles.submitButtonText}
-                  loading={submitting}
                   disabled={submitting}
                 />
               </View>
@@ -850,6 +733,7 @@ const styles = StyleSheet.create({
     color: '#6c757d',
     fontSize: 14,
   },
+  // Modal styles
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
@@ -857,66 +741,49 @@ const styles = StyleSheet.create({
   modalScrollContainer: {
     flexGrow: 1,
     justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: 20,
+    padding: 16,
   },
   modalContent: {
     backgroundColor: '#fff',
     borderRadius: 16,
-    padding: 24,
-    width: '90%',
-    maxWidth: 400,
+    padding: 20,
+    maxHeight: '90%',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 10,
   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 24,
+    marginBottom: 20,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e9ecef',
   },
   modalTitle: {
     fontSize: 20,
     fontWeight: 'bold',
     color: '#212529',
   },
-  inputContainer: {
-    marginBottom: 16,
-  },
-  inputText: {
-    fontSize: 16,
-    color: '#212529',
-  },
-  textAreaInput: {
-    textAlignVertical: 'top',
-    minHeight: 80,
-  },
-  errorTextInput: {
-    fontSize: 12,
-    color: '#dc3545',
-  },
   modalButtons: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 8,
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#e9ecef',
   },
   cancelButton: {
     borderColor: '#6c757d',
-    borderWidth: 1,
     borderRadius: 8,
-    flex: 1,
-    marginRight: 8,
+    paddingVertical: 12,
   },
   cancelButtonText: {
     color: '#6c757d',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  submitButton: {
-    backgroundColor: '#2196F3',
-    borderRadius: 8,
-    flex: 1,
-    marginLeft: 8,
-  },
-  submitButtonText: {
     fontSize: 16,
     fontWeight: '600',
   },

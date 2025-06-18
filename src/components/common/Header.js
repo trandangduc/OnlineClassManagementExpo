@@ -1,40 +1,25 @@
 import { View, Text, StyleSheet, TouchableOpacity, StatusBar } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialIcons';
-import { useAuth } from '../../contexts/AuthContext'; 
 
 const Header = ({ 
   title, 
-  leftIcon, 
   rightIcon, 
-  onLeftPress, 
   onRightPress,
-  showProfile = false,
   backgroundColor = '#2196F3',
   textColor = '#fff'
 }) => {
-  const { userProfile } = useAuth();
 
   return (
     <>
       <StatusBar backgroundColor={backgroundColor} barStyle="light-content" />
       <View style={[styles.container, { backgroundColor }]}>
         <View style={styles.leftContainer}>
-          {leftIcon && (
-            <TouchableOpacity onPress={onLeftPress} style={styles.iconButton}>
-              <Icon name={leftIcon} size={24} color={textColor} />
-            </TouchableOpacity>
-          )}
         </View>
 
         <View style={styles.centerContainer}>
           <Text style={[styles.title, { color: textColor }]} numberOfLines={1}>
             {title}
           </Text>
-          {showProfile && userProfile && (
-            <Text style={[styles.subtitle, { color: textColor + 'CC' }]}>
-              {userProfile.getDisplayName?.() || 'Người dùng'}
-            </Text>
-          )}
         </View>
 
         <View style={styles.rightContainer}>

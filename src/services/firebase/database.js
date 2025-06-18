@@ -1,65 +1,6 @@
 import { database } from './config';
 
 export const databaseService = {
-  createUser: async (uid, userData) => {
-    try {
-      const userWithTimestamp = {
-        ...userData,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        isActive: true
-      };
-      return await database.ref(`users/${uid}`).set(userWithTimestamp);
-    } catch (error) {
-      console.error('Create user error:', error);
-      throw error;
-    }
-  },
-
-  getUser: async (uid) => {
-    try {
-      const snapshot = await database.ref(`users/${uid}`).once('value');
-      const userData = snapshot.val();
-      if (userData) {
-        delete userData.password; 
-      }
-      return userData;
-    } catch (error) {
-      console.error('Get user error:', error);
-      throw error;
-    }
-  },
-
-  updateUser: async (uid, updates) => {
-    try {
-      const updateData = {
-        ...updates,
-        updatedAt: new Date().toISOString()
-      };
-      return await database.ref(`users/${uid}`).update(updateData);
-    } catch (error) {
-      console.error('Update user error:', error);
-      throw error;
-    }
-  },
-
-  getAllUsers: async () => {
-    try {
-      const snapshot = await database.ref('users').once('value');
-      const users = snapshot.val() || {};
-      Object.keys(users).forEach(uid => {
-        if (users[uid].password) {
-          delete users[uid].password;
-        }
-      });
-      
-      return users;
-    } catch (error) {
-      console.error('Get all users error:', error);
-      throw error;
-    }
-  },
-
   createCourse: async (courseId, courseData) => {
     try {
       const courseWithTimestamp = {

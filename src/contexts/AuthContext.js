@@ -153,31 +153,6 @@ export const AuthProvider = ({ children }) => {
       setLoading(false);
     }
   };
-
-  const updateProfile = async (updates) => {
-    try {
-      if (!user) throw new Error('User not authenticated');
-      
-      setLoading(true);
-
-      await database.ref(`users/${user.uid}`).update({
-        ...updates,
-        updatedAt: new Date().toISOString()
-      });
-
-      const updatedUser = { ...user, ...updates };
-      setUser(updatedUser);
-      setUserProfile(User.fromDatabase(updatedUser));
-      await AsyncStorage.setItem('currentUser', JSON.stringify(updatedUser));
-
-    } catch (error) {
-      console.error('Update profile error:', error);
-      throw error;
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const value = {
     user,
     userProfile,
@@ -186,7 +161,6 @@ export const AuthProvider = ({ children }) => {
     signIn,
     signUp,
     signOut: signOutUser,
-    updateProfile,
     isAuthenticated: !!user,
     isTeacher: userProfile?.isTeacher() || false,
     isStudent: userProfile?.isStudent() || true

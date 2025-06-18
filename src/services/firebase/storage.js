@@ -67,13 +67,6 @@ export const storageService = {
     }
   },
 
-  ensurePdfMimeType: (file) => {
-    return {
-      ...file,
-      type: 'application/pdf'
-    };
-  },
-
   uploadFile: async (file, fileName, onProgress, folder = 'documents') => {
     try {
       let fileBlob;
@@ -258,66 +251,6 @@ export const storageService = {
       throw new Error(`Lỗi lấy URL: ${error.message}`);
     }
   },
-
-  getFileMetadata: async (fileUrl) => {
-    try {
-      const reference = storage.refFromURL(fileUrl);
-      const metadata = await reference.getMetadata();
-      return metadata;
-    } catch (error) {
-      console.error('Get metadata error:', error);
-      throw error;
-    }
-  },
-
-  listFiles: async (folder = 'documents', maxResults = 100) => {
-    try {
-      const reference = storage.ref(folder);
-      const result = await reference.listAll();
-      
-      const files = await Promise.all(
-        result.items.map(async (itemRef) => {
-          const url = await itemRef.getDownloadURL();
-          const metadata = await itemRef.getMetadata();
-          return {
-            name: itemRef.name,
-            fullPath: itemRef.fullPath,
-            url: url,
-            size: metadata.size,
-            contentType: metadata.contentType,
-            timeCreated: metadata.timeCreated,
-            updated: metadata.updated
-          };
-        })
-      );
-      
-      return files;
-    } catch (error) {
-      throw error;
-    }
-  },
-
-  generateFileName: (originalName, folder = '') => {
-    const timestamp = Date.now();
-    const random = Math.random().toString(36).substr(2, 9);
-    const sanitized = originalName.replace(/[^a-zA-Z0-9.]/g, '_');
-    return `${folder ? folder + '/' : ''}${timestamp}_${random}_${sanitized}`;
-  },
-
-  validateFileType: (file, allowedTypes = ['pdf']) => {
-    if (!file || !file.name) {
-      throw new Error('File không hợp lệ');
-    }
-    
-    const fileExtension = file.name.split('.').pop().toLowerCase();
-    
-    if (fileExtension !== 'pdf') {
-      throw new Error('Chỉ chấp nhận file PDF');
-    }
-    
-    return true;
-  },
-
   validateFileSize: (file, maxSizeMB = 50) => {
     if (!file || !file.size) {
       throw new Error('File không hợp lệ');
@@ -330,39 +263,4 @@ export const storageService = {
     
     return true;
   },
-
-  validateAndPrepareFile: async (file) => {
-    try {
-      if (!file || !file.uri) {
-        throw new Error('File không hợp lệ');
-      }
-      
-      if (!file.size || file.size === 0) {
-        throw new Error('File rỗng');
-      }
-      
-      storageService.validateFileSize(file, 50);
-      storageService.validateFileType(file);
-      
-      const response = await fetch(file.uri);
-      const arrayBuffer = await response.arrayBuffer();
-      const uint8Array = new Uint8Array(arrayBuffer.slice(0, 4));
-      
-      const pdfHeader = String.fromCharCode(...uint8Array);
-      if (!pdfHeader.startsWith('%PDF')) {
-        throw new Error('File không phải là PDF hợp lệ');
-      }
-      
-      const tempPath = await storageService.copyFileToTemp(file.uri, file.name);
-      
-      return {
-        ...file,
-        tempPath: tempPath,
-        isPrepared: true
-      };
-      
-    } catch (error) {
-      throw error;
-    }
-  }
 };

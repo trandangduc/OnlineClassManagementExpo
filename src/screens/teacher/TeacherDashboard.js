@@ -9,7 +9,8 @@ import {
   RefreshControl,
   Alert
 } from 'react-native';
-import { Card, Header, Button, Avatar } from 'react-native-elements';
+import { Card, Button, Avatar } from 'react-native-elements';
+import Header from '../../components/common/Header'; 
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import { useCourseViewModel } from '../../viewmodels/CourseViewModel';
 import { useAuthViewModel } from '../../viewmodels/AuthViewModel';
@@ -86,21 +87,10 @@ const TeacherDashboard = ({ navigation }) => {
 
   return (
     <SafeAreaView style={styles.container}>
-      <Header
-        centerComponent={{
-          text: 'Dashboard Giảng viên',
-          style: styles.headerTitle
-        }}
-        leftComponent={{
-          icon: 'person',
-          color: '#fff',
-          onPress: handleViewProfile
-        }}
-        rightComponent={{
-          icon: 'logout',
-          color: '#fff',
-          onPress: handleSignOutPress
-        }}
+     <Header
+        title="DashBoard"
+        rightIcon="logout"
+        onRightPress={handleSignOutPress}
         backgroundColor="#2196F3"
       />
 

@@ -13,8 +13,7 @@ export const useAuthViewModel = () => {
     loading: authLoading,
     isAuthenticated,
     isTeacher,
-    isStudent,
-    updateProfile
+    isStudent
   } = useAuth();
   
   const [error, setError] = useState('');

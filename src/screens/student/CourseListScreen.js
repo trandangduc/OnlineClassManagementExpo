@@ -10,10 +10,11 @@ import {
   TouchableOpacity,
   ActivityIndicator
 } from 'react-native';
-import { SearchBar, Card, Button, Badge, Header } from 'react-native-elements';
+import { SearchBar, Card, Button, Badge } from 'react-native-elements';
 import { useCourseViewModel } from '../../viewmodels/CourseViewModel';
 import { useAuthViewModel } from '../../viewmodels/AuthViewModel';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
+import Header from '../../components/common/Header'; 
 import { formatDate } from '../../utils/helpers';
 
 const ITEMS_PER_PAGE = 20;
@@ -318,20 +319,9 @@ const CourseListScreen = ({ navigation }) => {
   return (
     <SafeAreaView style={styles.container}>
       <Header
-        centerComponent={{
-          text: 'Môn Học',
-          style: styles.headerTitle
-        }}
-        leftComponent={{
-          icon: 'person',
-          color: '#fff',
-          onPress: () => navigation.navigate('Profile')
-        }}
-        rightComponent={{
-          icon: 'logout',
-          color: '#fff',
-          onPress: handleSignOutPress
-        }}
+        title="Môn Học"
+        rightIcon="logout"
+        onRightPress={handleSignOutPress}
         backgroundColor="#2196F3"
       />
 
@@ -422,7 +412,6 @@ const CourseListScreen = ({ navigation }) => {
                 tintColor="#2196F3"
               />
             }
-            
             contentContainerStyle={styles.listContainer}
             showsVerticalScrollIndicator={false}
           />
@@ -436,11 +425,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f8f9fa',
-  },
-  headerTitle: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: 'bold',
   },
   userInfo: {
     backgroundColor: '#fff',

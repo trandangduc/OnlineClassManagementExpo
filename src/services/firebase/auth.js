@@ -139,42 +139,4 @@ export const authService = {
       console.error('Save current user error:', error);
     }
   },
-
-  updateUserProfile: async (uid, updates) => {
-    try {
-      await database.ref(`users/${uid}`).update({
-        ...updates,
-        updatedAt: new Date().toISOString()
-      });
-      
-      return true;
-    } catch (error) {
-      console.error('Update profile error:', error);
-      throw error;
-    }
-  },
-
-  getUserProfile: async (uid) => {
-    try {
-      const snapshot = await database.ref(`users/${uid}`).once('value');
-      if (snapshot.exists()) {
-        const userData = snapshot.val();
-        delete userData.password; 
-        return userData;
-      }
-      return null;
-    } catch (error) {
-      console.error('Get user profile error:', error);
-      throw error;
-    }
-  },
-
-  validateEmail: (email) => {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return emailRegex.test(email);
-  },
-
-  validatePassword: (password) => {
-    return password && password.length >= 6;
-  }
 };
