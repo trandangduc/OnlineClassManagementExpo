@@ -110,42 +110,6 @@ export const useAuthViewModel = () => {
     }
   };
 
-  const handleUpdateProfile = async (updates) => {
-    try {
-      setError('');
-      setIsLoading(true);
-      
-      if (updates.name && updates.name.trim().length < 2) {
-        throw new Error('Tên tối thiểu 2 ký tự');
-      }
-      
-      if (updates.phone && !isValidPhone(updates.phone)) {
-        throw new Error('Số điện thoại không hợp lệ');
-      }
-      
-      if (updates.email && !isValidEmail(updates.email)) {
-        throw new Error('Email không hợp lệ');
-      }
-      
-      const cleanUpdates = {};
-      Object.keys(updates).forEach(key => {
-        if (updates[key] !== undefined && updates[key] !== null) {
-          cleanUpdates[key] = typeof updates[key] === 'string' ? updates[key].trim() : updates[key];
-        }
-      });
-      
-      await updateProfile(cleanUpdates);
-      console.log('Profile update successful via ViewModel');
-      
-    } catch (error) {
-      console.error('Update profile error in ViewModel:', error);
-      setError('Cập nhật thông tin thất bại');
-      throw error;
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   const validateName = (name) => {
     return name && name.trim().length >= 2;
   };
@@ -193,34 +157,6 @@ export const useAuthViewModel = () => {
     return getRoleDisplayName('student');
   };
 
-  const canEditProfile = () => {
-    return isAuthenticated && user;
-  };
-
-  const getFieldError = (field, value) => {
-    switch (field) {
-      case 'email':
-        if (!value) return 'Email là bắt buộc';
-        if (!isValidEmail(value)) return 'Email không hợp lệ';
-        break;
-      case 'password':
-        if (!value) return 'Mật khẩu là bắt buộc';
-        const passwordValidation = validatePassword(value);
-        if (!passwordValidation.isValid) return passwordValidation.message;
-        break;
-      case 'name':
-        if (!value) return 'Tên là bắt buộc';
-        if (!validateName(value)) return 'Tên tối thiểu 2 ký tự';
-        break;
-      case 'phone':
-        if (value && !isValidPhone(value)) return 'Số điện thoại không hợp lệ';
-        break;
-      default:
-        return null;
-    }
-    return null;
-  };
-
   return {
     user,
     userProfile,
@@ -232,7 +168,6 @@ export const useAuthViewModel = () => {
     handleSignIn,
     handleSignUp,
     handleSignOut,
-    handleUpdateProfile,
     validateEmail: isValidEmail,
     validatePassword: (password) => validatePassword(password).isValid,
     validatePhone: isValidPhone,
@@ -240,8 +175,6 @@ export const useAuthViewModel = () => {
     setError,
     clearError: () => setError(''),
     getUserDisplayName,
-    getUserRole,
-    canEditProfile,
-    getFieldError
+    getUserRole
   };
 };
