@@ -11,7 +11,7 @@ import {
   isYouTubeUrl,
   getFileExtension
 } from '../utils/helpers';
-
+import {validateFileType, validateFileSize} from '../utils/validators';
 const ITEMS_PER_PAGE = 20;
 
 export const useDocumentViewModel = (courseId) => {
@@ -201,8 +201,8 @@ export const useDocumentViewModel = (courseId) => {
       }
 
       const allowedTypes = ['pdf', 'doc', 'docx', 'txt', 'jpg', 'jpeg', 'png'];
-      storageService.validateFileType(file, allowedTypes);
-      storageService.validateFileSize(file, 10);
+      validateFileType(file, allowedTypes);
+      validateFileSize(file, 10);
 
       const downloadURL = await storageService.uploadFileResumable(
         file, 

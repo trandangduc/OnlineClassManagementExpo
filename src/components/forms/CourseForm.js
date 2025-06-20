@@ -53,51 +53,6 @@ const CourseForm = ({
           />
         )}
       />
-
-      <Controller
-        control={control}
-        name="subject"
-        render={({ field: { onChange, onBlur, value } }) => (
-          <Input
-            placeholder="Môn học (VD: Toán học, Vật lý...)"
-            value={value}
-            onBlur={onBlur}
-            onChangeText={onChange}
-            leftIcon={{ 
-              type: 'material', 
-              name: 'book',
-              color: '#2196F3'
-            }}
-            containerStyle={styles.inputContainer}
-            inputStyle={styles.inputText}
-            errorStyle={styles.errorText}
-            disabled={loading}
-          />
-        )}
-      />
-
-      <Controller
-        control={control}
-        name="semester"
-        render={({ field: { onChange, onBlur, value } }) => (
-          <Input
-            placeholder="Học kỳ (VD: HK1 2024-2025)"
-            value={value}
-            onBlur={onBlur}
-            onChangeText={onChange}
-            leftIcon={{ 
-              type: 'material', 
-              name: 'schedule',
-              color: '#2196F3'
-            }}
-            containerStyle={styles.inputContainer}
-            inputStyle={styles.inputText}
-            errorStyle={styles.errorText}
-            disabled={loading}
-          />
-        )}
-      />
-
       <Controller
         control={control}
         name="description"
