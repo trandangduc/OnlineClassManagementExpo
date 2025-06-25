@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import { SearchBar, Card, Button, Badge, Header } from 'react-native-elements';
 import Icon from 'react-native-vector-icons/MaterialIcons';
+import * as WebBrowser from 'expo-web-browser';
 import { useDocumentViewModel } from '../../viewmodels/DocumentViewModel';
 import { useAuthViewModel } from '../../viewmodels/AuthViewModel';
 import { useCourseViewModel } from '../../viewmodels/CourseViewModel';
@@ -158,6 +159,50 @@ const DocumentScreen = ({ route, navigation }) => {
         return;
       }
 
+      if (document.type === 'pdf' || url.toLowerCase().includes('.pdf')) {
+        Alert.alert(
+          'Xem PDF',
+          'Chọn cách xem tài liệu PDF:',
+          [
+            {
+              text: 'Xem trong app',
+              onPress: async () => {
+                const viewerUrl = `https://docs.google.com/viewer?url=${encodeURIComponent(url)}&embedded=true`;
+                await WebBrowser.openBrowserAsync(viewerUrl, {
+                  presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
+                  controlsColor: '#2196F3',
+                  toolbarColor: '#2196F3',
+                });
+              }
+            },
+            {
+              text: 'Tải xuống',
+              onPress: async () => {
+                await WebBrowser.openBrowserAsync(url, {
+                  presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
+                  controlsColor: '#2196F3',
+                  toolbarColor: '#2196F3',
+                });
+              }
+            },
+            {
+              text: 'Hủy',
+              style: 'cancel'
+            }
+          ]
+        );
+        return;
+      }
+
+      if (document.type === 'link' || document.type === 'web') {
+        await WebBrowser.openBrowserAsync(url, {
+          presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
+          controlsColor: '#2196F3',
+          toolbarColor: '#2196F3',
+        });
+        return;
+      }
+
       const supported = await Linking.canOpenURL(url);
       if (supported) {
         await Linking.openURL(url);
@@ -292,6 +337,22 @@ const DocumentScreen = ({ route, navigation }) => {
     getDocumentColorWithYouTube 
   }) => {
     const isYouTubeVideo = isYouTubeUrl(document.url);
+    const isPdf = document.type === 'pdf' || document.url?.toLowerCase().includes('.pdf');
+    const isWebLink = document.type === 'link' || document.type === 'web';
+
+    const getActionIcon = () => {
+      if (isYouTubeVideo) return "play-arrow";
+      if (isPdf) return "picture-as-pdf";
+      if (isWebLink) return "language";
+      return "open-in-new";
+    };
+
+    const getActionColor = () => {
+      if (isYouTubeVideo) return "#ff0000";
+      if (isPdf) return "#dc3545";
+      if (isWebLink) return "#17a2b8";
+      return "#2196F3";
+    };
     
     return (
       <Card containerStyle={styles.documentCard}>
@@ -322,10 +383,25 @@ const DocumentScreen = ({ route, navigation }) => {
                     Video YouTube
                   </Text>
                 )}
+                {isPdf && (
+                  <Text style={styles.pdfIndicator}>
+                    Tài liệu PDF
+                  </Text>
+                )}
+                {isWebLink && (
+                  <Text style={styles.webIndicator}>
+                    Trang web
+                  </Text>
+                )}
               </View>
             </View>
             <Badge
-              value={isYouTubeVideo ? 'YOUTUBE' : (document.type?.toUpperCase() || 'FILE')}
+              value={
+                isYouTubeVideo ? 'YOUTUBE' : 
+                isPdf ? 'PDF' :
+                isWebLink ? 'WEB' :
+                (document.type?.toUpperCase() || 'FILE')
+              }
               badgeStyle={[
                 styles.typeBadge,
                 { backgroundColor: getDocumentColorWithYouTube(document.type, document.url) }
@@ -360,9 +436,9 @@ const DocumentScreen = ({ route, navigation }) => {
                 onPress={() => onPress(document)}
               >
                 <Icon 
-                  name={isYouTubeVideo ? "play-arrow" : "open-in-new"} 
+                  name={getActionIcon()} 
                   size={20} 
-                  color={isYouTubeVideo ? "#ff0000" : "#2196F3"} 
+                  color={getActionColor()} 
                 />
               </TouchableOpacity>
             </View>
@@ -418,6 +494,7 @@ const DocumentScreen = ({ route, navigation }) => {
       </View>
     );
   }, [loadingMore]);
+
   const getItemLayout = useCallback((data, index) => ({
     length: DOCUMENT_ITEM_HEIGHT,
     offset: DOCUMENT_ITEM_HEIGHT * index,
@@ -622,6 +699,18 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     marginTop: 2,
   },
+  pdfIndicator: {
+    fontSize: 12,
+    color: '#dc3545',
+    fontWeight: '500',
+    marginTop: 2,
+  },
+  webIndicator: {
+    fontSize: 12,
+    color: '#17a2b8',
+    fontWeight: '500',
+    marginTop: 2,
+  },
   typeBadge: {
     borderRadius: 12,
   },
@@ -687,35 +776,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 20,
     marginBottom: 16,
-  },
-  addButton: {
-    backgroundColor: '#2196F3',
-    borderRadius: 8,
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-  },
-  addButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  floatingButton: {
-    position: 'absolute',
-    bottom: 20,
-    right: 20,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: '#2196F3',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
   },
   errorContainer: {
     margin: 16,
