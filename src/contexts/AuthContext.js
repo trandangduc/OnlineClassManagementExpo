@@ -92,6 +92,7 @@ export const AuthProvider = ({ children }) => {
     
     try {
       setLoading(true);
+      
       const emailLower = email.toLowerCase().trim();
       const existingUser = await database.ref('users')
         .orderByChild('email')
