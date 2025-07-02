@@ -89,6 +89,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   const signUp = async (email, password, role = 'student', profileData = {}) => {
+    
     try {
       setLoading(true);
       const emailLower = email.toLowerCase().trim();
